@@ -10,4 +10,5 @@
 - [x] 3D: surrender execution uses always-live round, amplified muzzle/blood/camera kick
 - [x] UI: Surrender button (PLAYER_TURN + grim only) + `F` key + gamepad hint
 - [x] Verify: `tsc --noEmit`, `vite build`, in-game flow to GAME_OVER 0 HP
-- [ ] Commit + push
+- [x] Commit locally (`10a3bf0`)
+- [ ] Push (blocked: no GitHub auth in this shell — run `git push origin main` yourself)
