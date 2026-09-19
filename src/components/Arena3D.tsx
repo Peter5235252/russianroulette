@@ -39,6 +39,11 @@ interface Arena3DProps {
   difficulty?: Difficulty;
   shooter: 'player' | 'dealer' | null;
   target: 'player' | 'dealer' | null;
+  surrender?: () => void;
+  surrendered?: boolean;
+  executionWeapon?: 'revolver' | 'shotgun' | null;
+  dealerSmirk?: boolean;
+  isSurrenderAvailable?: boolean;
 }
 
 const ITEM_DESCS: Record<string, string> = {
@@ -102,6 +107,11 @@ export function Arena3D({
   difficulty = 'NORMAL',
   shooter,
   target,
+  surrender,
+  surrendered = false,
+  executionWeapon = null,
+  dealerSmirk = false,
+  isSurrenderAvailable = false,
 }: Arena3DProps) {
   const [inputType, setInputType] = useState<'kbm' | 'gamepad'>('kbm');
   const [graphics, setGraphics] = useState({
@@ -262,6 +272,10 @@ export function Arena3D({
     graphics,
     shooter: shooter,
     target: target,
+    surrendered,
+    executionWeapon,
+    dealerSmirk,
+    isSurrenderAvailable,
   });
 
   useEffect(() => {
@@ -288,6 +302,10 @@ export function Arena3D({
       graphics,
       shooter,
       target,
+      surrendered,
+      executionWeapon,
+      dealerSmirk,
+      isSurrenderAvailable,
     };
   }, [
     gameState,
@@ -308,6 +326,10 @@ export function Arena3D({
     graphics,
     shooter,
     target,
+    surrendered,
+    executionWeapon,
+    dealerSmirk,
+    isSurrenderAvailable,
   ]);
 
   // Persist animation state across prop updates to prevent double-animations
@@ -2091,6 +2113,73 @@ export function Arena3D({
     guardMesh.position.set(0, -0.05, -0.1);
     gunGroup.add(guardMesh);
 
+    // --- DEALER EXECUTION SHOTGUN (surrender finale, same PBR language as revolver) ---
+    const shotgunGroup = new THREE.Group();
+    shotgunGroup.name = 'dealerExecutionShotgun';
+    shotgunGroup.visible = false;
+    shotgunGroup.position.set(0, 1.2, -2.2);
+    scene.add(shotgunGroup);
+
+    const shotgunReceiverGeo = new THREE.BoxGeometry(0.16, 0.22, 0.7);
+    const shotgunReceiver = new THREE.Mesh(shotgunReceiverGeo, gunMetalMat);
+    shotgunReceiver.position.set(0, 0, -0.25);
+    shotgunReceiver.castShadow = true;
+    shotgunReceiver.receiveShadow = true;
+    shotgunGroup.add(shotgunReceiver);
+
+    const shotgunBarrelGeo = new THREE.CylinderGeometry(0.075, 0.075, 1.15, barrelSegments);
+    shotgunBarrelGeo.rotateX(Math.PI / 2);
+    const shotgunBarrel = new THREE.Mesh(shotgunBarrelGeo, gunMetalMat);
+    shotgunBarrel.position.set(0, 0.06, 0.62);
+    shotgunBarrel.castShadow = true;
+    shotgunGroup.add(shotgunBarrel);
+
+    const shotgunBoreGeo = new THREE.CylinderGeometry(0.055, 0.055, 0.14, 16);
+    shotgunBoreGeo.rotateX(Math.PI / 2);
+    const shotgunBore = new THREE.Mesh(shotgunBoreGeo, darkLinerMat);
+    shotgunBore.position.set(0, 0.06, 1.18);
+    shotgunGroup.add(shotgunBore);
+
+    const shotgunMuzzleRingGeo = new THREE.TorusGeometry(0.075, 0.014, 8, 24);
+    const shotgunMuzzleRing = new THREE.Mesh(shotgunMuzzleRingGeo, polishedSteelMat);
+    shotgunMuzzleRing.position.set(0, 0.06, 1.19);
+    shotgunGroup.add(shotgunMuzzleRing);
+
+    const shotgunTubeGeo = new THREE.CylinderGeometry(0.055, 0.055, 0.95, 16);
+    shotgunTubeGeo.rotateX(Math.PI / 2);
+    const shotgunTube = new THREE.Mesh(shotgunTubeGeo, polishedSteelMat);
+    shotgunTube.position.set(0, -0.07, 0.5);
+    shotgunGroup.add(shotgunTube);
+
+    const shotgunPumpGeo = new THREE.BoxGeometry(0.17, 0.14, 0.42);
+    const shotgunPump = new THREE.Mesh(shotgunPumpGeo, stockMat);
+    shotgunPump.position.set(0, -0.07, 0.55);
+    shotgunPump.castShadow = true;
+    shotgunGroup.add(shotgunPump);
+
+    const shotgunStockGeo = new THREE.BoxGeometry(0.15, 0.32, 0.55);
+    const shotgunStock = new THREE.Mesh(shotgunStockGeo, stockMat);
+    shotgunStock.position.set(0, -0.12, -0.78);
+    shotgunStock.rotation.x = 0.18;
+    shotgunStock.castShadow = true;
+    shotgunGroup.add(shotgunStock);
+
+    const shotgunBeadGeo = new THREE.SphereGeometry(0.02, 10, 10);
+    const shotgunBead = new THREE.Mesh(shotgunBeadGeo, brassAccentMat);
+    shotgunBead.position.set(0, 0.16, 1.05);
+    shotgunGroup.add(shotgunBead);
+
+    const shotgunSideSaddleGeo = new THREE.BoxGeometry(0.02, 0.12, 0.5);
+    const shotgunShellMat = new THREE.MeshStandardMaterial({ color: 0xa31212, roughness: 0.35, metalness: 0.2 });
+    for (let si = 0; si < 4; si++) {
+      const shell = new THREE.Mesh(new THREE.CylinderGeometry(0.032, 0.032, 0.11, 12).rotateZ(Math.PI / 2), shotgunShellMat);
+      shell.position.set(0.095, 0.02 + (si % 2) * 0.09, -0.35 + Math.floor(si / 2) * 0.22);
+      shotgunGroup.add(shell);
+    }
+    const shotgunSaddle = new THREE.Mesh(shotgunSideSaddleGeo, darkLinerMat);
+    shotgunSaddle.position.set(0.085, 0.06, -0.24);
+    shotgunGroup.add(shotgunSaddle);
+
 
     // --- THE IMMERSIVE PHYSICAL TV (VITAL SIGNAL MONITORS) ---
     const tvGroup = new THREE.Group();
@@ -3476,9 +3565,16 @@ export function Arena3D({
           vibrateGamepad('click');
           return;
         }
-        if (lowerKey === 'd' || code === 'KeyD' || lowerKey === 'f') {
+        if (lowerKey === 'd' || code === 'KeyD') {
           e.preventDefault();
           fireGun('dealer', 'player');
+          setHoveredInfo(null);
+          vibrateGamepad('click');
+          return;
+        }
+        if ((lowerKey === 'f' || code === 'KeyF' || lowerKey === 'x' || code === 'KeyX') && latest.isSurrenderAvailable && surrender) {
+          e.preventDefault();
+          surrender();
           setHoveredInfo(null);
           vibrateGamepad('click');
           return;
@@ -3698,6 +3794,16 @@ export function Arena3D({
            vibrateGamepad('click');
         }
         lastGamepadRT = !!btnRT;
+
+        const btnLBChord = gp.buttons[4]?.pressed;
+        const btnRBChord = gp.buttons[5]?.pressed;
+        const surrenderChord = !!btnLBChord && !!btnRBChord;
+        if (surrenderChord && !(ar as any).lastSurrenderChord && latest.showControls && latest.isSurrenderAvailable && surrender) {
+           surrender();
+           setHoveredInfo(null);
+           vibrateGamepad('click');
+        }
+        (ar as any).lastSurrenderChord = surrenderChord;
 
         if (virtualCursorActive) {
           if (cursorEl) cursorEl.style.display = 'flex';
@@ -4184,9 +4290,17 @@ export function Arena3D({
         // 4. Any completed empty self shot
         const emptyShotAtSelf = (ar.animShooter === 'player' && ar.animTarget === 'player' && isBlankOutcome);
 
-        const shouldSmile = explicitSmile || tryingToShootSelf || emptyShotAtDealer || emptyShotAtSelf || playerIsDead || personality === 'ARROGANT' || latest.retaliationActive;
+        // 5. Surrender execution: sadistic smirk while the player drops the gun
+        const isSurrenderExecution = !!latest.surrendered || !!latest.dealerSmirk || latest.executionWeapon === 'shotgun';
+
+        const shouldSmile = explicitSmile || tryingToShootSelf || emptyShotAtDealer || emptyShotAtSelf || playerIsDead || personality === 'ARROGANT' || latest.retaliationActive || isSurrenderExecution;
         
-        if (personality === 'DESPERATE') {
+        if (isSurrenderExecution) {
+          // Sadistic smirk overrides everything, including DESPERATE no-smile rule.
+          ar.dealerSmileFactor = ar.dealerSmileFactor * (1 - damp(0.25)) + 1.0 * damp(0.25);
+          ar.dealerHeadTiltFactor = Math.max(ar.dealerHeadTiltFactor, 0.65);
+          ar.dealerMouthOpenFactor = Math.max(ar.dealerMouthOpenFactor, 0.18);
+        } else if (personality === 'DESPERATE') {
           ar.dealerSmileFactor = 0.0; // Strictly NEVER smile in desperate mode
         } else if (shouldSmile) {
           ar.dealerSmileFactor = ar.dealerSmileFactor * (1 - damp(0.12)) + 1.0 * damp(0.12);
@@ -4485,12 +4599,43 @@ export function Arena3D({
 
           ar.animShooter = latest.shooter || 'player';
           ar.animTarget = latest.target || 'dealer';
-          ar.animIsLive = latest.chambers[latest.currentChamberIndex]?.isLive || false;
+          const isShotgunInit = !!latest.surrendered || latest.executionWeapon === 'shotgun';
+          ar.animIsLive = isShotgunInit ? true : (latest.chambers[latest.currentChamberIndex]?.isLive || false);
         }
 
         const elapsedMs = (Date.now() - ar.activeShootStartTime) * 1.25;
+        const isShotgunExecution = !!latest.surrendered || latest.executionWeapon === 'shotgun';
+        const droppedGunPos = new THREE.Vector3(0.9, 0.52, 0.7);
+        const droppedGunRot = new THREE.Euler(0.3, 1.1, 1.62);
+        const shotgunAimPos = new THREE.Vector3(0, 1.5, -1.6);
+        const shotgunAimRot = new THREE.Euler(0.32, 0, 0);
 
         if (elapsedMs < 1800) {
+          // --- SURRENDER EXECUTION: player drops revolver, dealer raises shotgun ---
+          if (isShotgunExecution) {
+            shotgunGroup.visible = true;
+            gunGroup.position.lerp(droppedGunPos, damp(0.14));
+            gunGroup.rotation.x = gunGroup.rotation.x * (1 - damp(0.14)) + droppedGunRot.x * damp(0.14);
+            gunGroup.rotation.y = gunGroup.rotation.y * (1 - damp(0.14)) + droppedGunRot.y * damp(0.14);
+            gunGroup.rotation.z = gunGroup.rotation.z * (1 - damp(0.14)) + droppedGunRot.z * damp(0.14);
+
+            shotgunGroup.position.lerp(shotgunAimPos, damp(0.12));
+            shotgunGroup.rotation.x = shotgunGroup.rotation.x * (1 - damp(0.12)) + shotgunAimRot.x * damp(0.12);
+            shotgunGroup.rotation.y = shotgunGroup.rotation.y * (1 - damp(0.12)) + shotgunAimRot.y * damp(0.12);
+            shotgunGroup.rotation.z = shotgunGroup.rotation.z * (1 - damp(0.12)) + shotgunAimRot.z * damp(0.12);
+
+            if (elapsedMs > 50 && !ar.hasCockingSoundPlayed) {
+              ar.hasCockingSoundPlayed = true;
+              import('../audio').then(a => a.playCockSound());
+            }
+            if (elapsedMs > 900) {
+              const tremblingIntensity = ((elapsedMs - 900) / 900) * 0.012;
+              shotgunGroup.position.x += (Math.random() - 0.5) * tremblingIntensity * deltaScale;
+              shotgunGroup.position.y += (Math.random() - 0.5) * tremblingIntensity * deltaScale;
+              ar.cameraShakeIntensity = ar.cameraShakeIntensity * (1 - damp(0.08)) + tremblingIntensity * 1.5;
+            }
+          } else {
+          shotgunGroup.visible = false;
           // --- RAISING & COCKING & AIMING PHASE ---
           const finalAimPos = new THREE.Vector3();
           const finalAimRot = new THREE.Euler();
@@ -4563,6 +4708,7 @@ export function Arena3D({
             // Camera subtle vibration tracking panic/heartbeats
             ar.cameraShakeIntensity = ar.cameraShakeIntensity * (1 - damp(0.08)) + tremblingIntensity * 1.5;
           }
+          }
 
           // Add dynamic, realistic nerve-wracking gamepad vibrations when aiming (only for player shooter)
           if (ar.animShooter === 'player') {
@@ -4605,15 +4751,17 @@ export function Arena3D({
               // Direct Visceral Camera Kickback
               if (ar.animTarget === 'player') {
                 // Player gets shot by Dealer or Self
-                ar.cameraKickZ = 0.62; // Violent backward jolt on camera
-                ar.cameraKickPitch = -0.38; // Upward camera pitch kick
-                ar.cameraKickRoll = (Math.random() > 0.5 ? 0.22 : -0.22); // Impact roll
-                ar.cameraShakeIntensity = 4.8;
+                const shotgunBoost = isShotgunExecution ? 1.6 : 1.0;
+                ar.cameraKickZ = 0.62 * shotgunBoost; // Violent backward jolt on camera
+                ar.cameraKickPitch = -0.38 * shotgunBoost; // Upward camera pitch kick
+                ar.cameraKickRoll = (Math.random() > 0.5 ? 0.22 : -0.22) * shotgunBoost; // Impact roll
+                ar.cameraShakeIntensity = isShotgunExecution ? 7.5 : 4.8;
 
                 spawnScreenSplat();
                 setTimeout(spawnScreenSplat, 100);
                 setTimeout(spawnScreenSplat, 250);
-                vibrateGamepad('jolt', { duration: 250, weak: 1.0, strong: 1.0 });
+                if (isShotgunExecution) setTimeout(spawnScreenSplat, 400);
+                vibrateGamepad('jolt', { duration: isShotgunExecution ? 500 : 250, weak: 1.0, strong: 1.0 });
               } else {
                 // Player shoots Dealer or Dealer shoots self
                 ar.cameraKickZ = 0.32; // Firing heavy gun kickback
@@ -4635,24 +4783,27 @@ export function Arena3D({
 
               const isSawed = !!latest.doubleDamageActive || ar.isSawedOff;
               const muzzleZ = isSawed ? 0.38 : 0.9;
-              const muzzleWorldPos = new THREE.Vector3(0, 0.18, muzzleZ).applyMatrix4(gunGroup.matrixWorld);
-              const chamberWorldPos = new THREE.Vector3(0.12, 0.12, -0.15).applyMatrix4(gunGroup.matrixWorld);
+              const muzzleSource = isShotgunExecution ? shotgunGroup : gunGroup;
+              const muzzleWorldPos = isShotgunExecution
+                ? new THREE.Vector3(0, 0.06, 1.25).applyMatrix4(shotgunGroup.matrixWorld)
+                : new THREE.Vector3(0, 0.18, muzzleZ).applyMatrix4(gunGroup.matrixWorld);
+              const chamberWorldPos = new THREE.Vector3(0.12, 0.12, -0.15).applyMatrix4(muzzleSource.matrixWorld);
 
               // 1. Real bullet projectile trajectory + ejected spent brass casing
-              spawnParticles(muzzleWorldPos, 0xcc9900, 1, 0.85, 0.0001, 'BULLET');
-              spawnParticles(chamberWorldPos, 0xd4af37, 1, 0.16, 0.0038, 'SHELL');
+              spawnParticles(muzzleWorldPos, 0xcc9900, isShotgunExecution ? 6 : 1, 0.85, 0.0001, 'BULLET');
+              spawnParticles(chamberWorldPos, 0xd4af37, isShotgunExecution ? 4 : 1, 0.16, 0.0038, 'SHELL');
 
               // 2. Muzzle spark flash & heavy barrel smoke (amplified if sawed off double damage)
-              spawnParticles(muzzleWorldPos, 0xffaa00, isSawed ? 130 : 85, 0.55, 0.001, 'SPARK'); 
-              spawnParticles(muzzleWorldPos, 0xaaaaaa, isSawed ? 90 : 65, 0.7, -0.0018, 'SMOKE');
+              spawnParticles(muzzleWorldPos, 0xffaa00, isShotgunExecution ? 220 : (isSawed ? 130 : 85), 0.55, 0.001, 'SPARK'); 
+              spawnParticles(muzzleWorldPos, 0xaaaaaa, isShotgunExecution ? 160 : (isSawed ? 90 : 65), 0.7, -0.0018, 'SMOKE');
 
               // 3. MASSIVE PROCEDURAL BLOOD SPLATTER BURST FROM TARGET IMPACT POINT
               // Blasts directly down and outward onto table surface, items, and surrounding floor
-              spawnParticles(targetImpactPos, 0x2a0000, 380, 0.45, 0.004, 'BLOOD');
+              spawnParticles(targetImpactPos, 0x2a0000, isShotgunExecution ? 650 : 380, 0.45, 0.004, 'BLOOD');
               
               const midPoint = targetImpactPos.clone().add(muzzleWorldPos).multiplyScalar(0.5);
-              spawnParticles(midPoint, 0x2a0000, 220, 0.35, 0.004, 'BLOOD');
-              spawnParticles(muzzleWorldPos, 0x2a0000, 150, 0.28, 0.004, 'BLOOD');
+              spawnParticles(midPoint, 0x2a0000, isShotgunExecution ? 380 : 220, 0.35, 0.004, 'BLOOD');
+              spawnParticles(muzzleWorldPos, 0x2a0000, isShotgunExecution ? 260 : 150, 0.28, 0.004, 'BLOOD');
             } else {
               // Dry blank click -> extremely subtle mechanical click feedback
               ar.lastFireIsLive = false;
@@ -4668,7 +4819,22 @@ export function Arena3D({
           // --- RECOIL SETTLE AND RETURNING HOME ---
           const recoilAge = Math.max(0, elapsedMs - 1800);
 
-          if (recoilAge < 500) {
+          if (isShotgunExecution) {
+            // Shotgun stays trained on the player; revolver stays dropped.
+            gunGroup.position.lerp(droppedGunPos, damp(0.2));
+            gunGroup.rotation.x = gunGroup.rotation.x * (1 - damp(0.2)) + droppedGunRot.x * damp(0.2);
+            gunGroup.rotation.y = gunGroup.rotation.y * (1 - damp(0.2)) + droppedGunRot.y * damp(0.2);
+            gunGroup.rotation.z = gunGroup.rotation.z * (1 - damp(0.2)) + droppedGunRot.z * damp(0.2);
+            shotgunGroup.position.lerp(shotgunAimPos, damp(0.25));
+            shotgunGroup.rotation.x = shotgunGroup.rotation.x * (1 - damp(0.25)) + shotgunAimRot.x * damp(0.25);
+            if (ar.lastFireIsLive && recoilAge < 500) {
+              const kickForce = recoilAge <= 50
+                ? Math.sin((recoilAge / 50) * (Math.PI / 2))
+                : Math.pow(1.0 - ((recoilAge - 50) / 450), 3);
+              shotgunGroup.position.z += 0.45 * kickForce;
+              shotgunGroup.rotation.x -= 0.55 * kickForce;
+            }
+          } else if (recoilAge < 500) {
             // Settle holding post-fire phase
             const settlePos = new THREE.Vector3();
             let settleRotX = 0;
@@ -4758,11 +4924,23 @@ export function Arena3D({
           ar.gunBarrelFrontGroup.visible = !isSawedActive;
         }
 
-        // Perfectly flat wooden table top resting sways/coordinates
-        gunGroup.position.lerp(initialGunPos, damp(0.16));
-        gunGroup.rotation.x = gunGroup.rotation.x * (1 - damp(0.16)) + initialGunRot.x * damp(0.16);
-        gunGroup.rotation.y = gunGroup.rotation.y * (1 - damp(0.16)) + initialGunRot.y * damp(0.16);
-        gunGroup.rotation.z = gunGroup.rotation.z * (1 - damp(0.16)) + initialGunRot.z * damp(0.16);
+        const isSurrenderTableau = !!latest.surrendered || latest.executionWeapon === 'shotgun';
+        if (isSurrenderTableau) {
+          // Preserve finale tableau: revolver dropped, shotgun in dealer hands.
+          shotgunGroup.visible = true;
+          gunGroup.position.lerp(new THREE.Vector3(0.9, 0.52, 0.7), damp(0.16));
+          gunGroup.rotation.x = gunGroup.rotation.x * (1 - damp(0.16)) + 0.3 * damp(0.16);
+          gunGroup.rotation.y = gunGroup.rotation.y * (1 - damp(0.16)) + 1.1 * damp(0.16);
+          gunGroup.rotation.z = gunGroup.rotation.z * (1 - damp(0.16)) + 1.62 * damp(0.16);
+          shotgunGroup.position.lerp(new THREE.Vector3(0, 1.5, -1.6), damp(0.16));
+        } else {
+          shotgunGroup.visible = false;
+          // Perfectly flat wooden table top resting sways/coordinates
+          gunGroup.position.lerp(initialGunPos, damp(0.16));
+          gunGroup.rotation.x = gunGroup.rotation.x * (1 - damp(0.16)) + initialGunRot.x * damp(0.16);
+          gunGroup.rotation.y = gunGroup.rotation.y * (1 - damp(0.16)) + initialGunRot.y * damp(0.16);
+          gunGroup.rotation.z = gunGroup.rotation.z * (1 - damp(0.16)) + initialGunRot.z * damp(0.16);
+        }
       }
 
 
@@ -7151,6 +7329,21 @@ export function Arena3D({
         </>
       )}
 
+      {/* SURRENDER: grim-conditions only, player drops gun for shotgun execution */}
+      {player.health > 0 && gameState === 'PLAYER_TURN' && showControls && !isLookingAtShopRef.current && isSurrenderAvailable && surrender && (
+        <button
+          onClick={() => {
+            if (gameState === 'PLAYER_TURN' && showControls) surrender();
+          }}
+          title="Surrender: drop the gun. The Dealer finishes it with a shotgun."
+          className="absolute bottom-6 right-6 z-[125] pointer-events-auto flex items-center gap-2 px-4 py-2.5 font-mono text-xs font-extrabold uppercase tracking-[0.25em] text-neutral-200 bg-black/70 border border-neutral-500/70 hover:border-white hover:text-white hover:bg-neutral-900/80 backdrop-blur-md shadow-[0_0_25px_rgba(0,0,0,0.8)] transition-all cursor-pointer"
+        >
+          <span aria-hidden>🏳️</span>
+          <span>Surrender</span>
+          <span className="text-[9px] text-neutral-400 border border-neutral-700 px-1 py-0.5">F</span>
+        </button>
+      )}
+
        {/* KEYBOARD QUICK CONTROLS HUD */}
       {inputType !== 'gamepad' && getControllerSettings().showKeyboardHud !== false && (showControls || isLookingAtShopRef.current) && (
         <motion.div
@@ -7184,6 +7377,15 @@ export function Arena3D({
             <span className="frosted-glass-item text-emerald-400 px-1.5 py-0.5 border border-emerald-800/80 font-extrabold">SPACE</span>
             <span className="text-neutral-300 font-semibold uppercase">CONFIRM</span>
           </div>
+          {isSurrenderAvailable && (
+            <>
+              <span className="text-neutral-700">|</span>
+              <div className="flex items-center gap-1.5 text-neutral-300">
+                <span className="frosted-glass-item text-neutral-200 px-1.5 py-0.5 border border-neutral-500/80 font-extrabold">F</span>
+                <span className="text-neutral-300 font-semibold uppercase">SURRENDER</span>
+              </div>
+            </>
+          )}
         </motion.div>
       )}
 

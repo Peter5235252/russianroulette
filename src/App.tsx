@@ -97,10 +97,15 @@ export default function App() {
     roundsSurvived,
     shooter,
     target,
+    surrendered,
+    executionWeapon,
+    dealerSmirk,
+    isSurrenderAvailable,
     buyItem,
     startGame,
     fireGun,
     useItem,
+    surrender,
   } = useGameState();
 
   const [showDeathScreen, setShowDeathScreen] = useState(false);
@@ -609,6 +614,11 @@ export default function App() {
               difficulty={activeDifficulty}
               shooter={shooter}
               target={target}
+              surrender={surrender}
+              surrendered={surrendered}
+              executionWeapon={executionWeapon}
+              dealerSmirk={dealerSmirk}
+              isSurrenderAvailable={isSurrenderAvailable}
             />
           </div>
 

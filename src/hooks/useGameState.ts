@@ -41,7 +41,36 @@ interface CoreState {
   roundsSurvived: number;
   shooter: 'player' | 'dealer' | null;
   target: 'player' | 'dealer' | null;
+  surrendered: boolean;
+  executionWeapon: 'revolver' | 'shotgun' | null;
+  dealerSmirk: boolean;
 }
+
+export const SURRENDER_LOW_HP_THRESHOLD: Record<Difficulty, number> = {
+  NORMAL: 35,
+  HARD: 25,
+  VERY_HARD: 20,
+  NIGHTMARE: 10,
+};
+
+export const isSurrenderAvailableFor = (
+  gameState: GameState,
+  difficulty: Difficulty,
+  player: PlayerState,
+  dealer: PlayerState,
+  surrendered: boolean,
+): boolean => {
+  if (surrendered) return false;
+  if (gameState !== 'PLAYER_TURN') return false;
+  if (player.health <= 0) return false;
+  const lowThreshold = SURRENDER_LOW_HP_THRESHOLD[difficulty] ?? 30;
+  const healthPct = player.maxHealth > 0 ? player.health / player.maxHealth : 1;
+  const isCriticallyLow = player.health <= lowThreshold;
+  const isOneShotFromDeath = player.health <= DAMAGE_PER_SHOT;
+  const isLowPct = healthPct <= 0.35;
+  const isHopelessGap = dealer.health - player.health >= 50 && player.health <= 50;
+  return isCriticallyLow || isOneShotFromDeath || isLowPct || isHopelessGap;
+};
 
 export const useGameState = () => {
   const [state, setState] = useState<CoreState>({
@@ -62,7 +91,10 @@ export const useGameState = () => {
     doubleDamageActive: null,
     roundsSurvived: 0,
     shooter: null,
-    target: null
+    target: null,
+    surrendered: false,
+    executionWeapon: null,
+    dealerSmirk: false
   });
 
   const stateRef = useRef<CoreState>(state);
@@ -92,7 +124,9 @@ export const useGameState = () => {
       message: "Loading the cylinder...",
       subMessage: `${live} live rounds, ${CYLINDER_SIZE - live} blanks.`,
       shooter: null,
-      target: null
+      target: null,
+      dealerSmirk: false,
+      executionWeapon: null
     });
     
     if (!initialLoading) {
@@ -146,7 +180,10 @@ export const useGameState = () => {
       playerDamageReductionEnd: null,
       dealerDamageReductionEnd: null,
       shooter: null,
-      target: null
+      target: null,
+      surrendered: false,
+      executionWeapon: null,
+      dealerSmirk: false
     });
     await startRound(true);
   };
@@ -642,6 +679,59 @@ export const useGameState = () => {
     }
   }, [state.gameState, state.turnSequence]); // Trigger on every state update while dealer turn matches
 
+  const isSurrenderAvailable = isSurrenderAvailableFor(
+    state.gameState,
+    state.difficulty,
+    state.player,
+    state.dealer,
+    state.surrendered,
+  );
+
+  const surrender = async () => {
+    const s = stateRef.current;
+    if (s.gameState !== 'PLAYER_TURN' || s.player.health <= 0 || s.surrendered) return;
+    if (!isSurrenderAvailableFor(s.gameState, s.difficulty, s.player, s.dealer, s.surrendered)) return;
+
+    // Player drops the revolver. Dealer draws a shotgun, smirks, and executes with an always-live round.
+    updateState({
+      gameState: 'SHOOTING',
+      shooter: 'dealer',
+      target: 'player',
+      surrendered: true,
+      executionWeapon: 'shotgun',
+      dealerSmirk: true,
+      retaliationActive: false,
+      doubleDamageActive: null,
+      message: 'You drop the gun.',
+      subMessage: 'The Dealer smiles, grin stretches wide.',
+    });
+
+    await wait(2200);
+
+    // Always-live shotgun blast: instant death to 0 HP, bypassing shields/reductions.
+    playGunshot();
+    vibrateGamepad('strong');
+    setTimeout(playBloodSplatter, 120);
+    const cur = stateRef.current;
+    updateState({
+      player: { ...cur.player, health: 0 },
+      bloodLevel: 180,
+      message: 'The Dealer smiles.',
+      subMessage: 'No mercy for the broken.',
+    });
+
+    await wait(1400);
+    setTimeout(() => {
+      if (stateRef.current.surrendered) updateState({ bloodLevel: 100 });
+    }, 600);
+
+    updateState({
+      gameState: 'GAME_OVER',
+      message: '',
+      subMessage: '',
+    });
+  };
+
   const buyItem = (itemType: ItemType, cost: number) => {
       if (stateRef.current.bloodCurrency >= cost && stateRef.current.player.items.length < 8) {
           const p = stateRef.current.player;
@@ -656,9 +746,11 @@ export const useGameState = () => {
     ...state,
     liveCount,
     blankCount,
+    isSurrenderAvailable,
     startGame,
     fireGun,
     useItem,
-    buyItem
+    buyItem,
+    surrender
   };
 };
