@@ -1,6 +1,6 @@
 # Russian Roulette: Abyss
 
-A dark, turn-based survival duel for one player against a computer-controlled Dealer. The game builds on the Russian roulette premise with a randomized cylinder, health, tactical items, a blood-funded market, and a 3D horror atmosphere. It is a solo game, not network multiplayer.
+A dark, turn-based solo survival duel for one player against a computer-controlled Dealer. The game builds on the Russian roulette premise with a randomized cylinder, health, tactical items, a blood-funded market, and a 3D horror atmosphere.
 
 ## Play in your browser
 
