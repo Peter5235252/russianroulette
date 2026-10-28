@@ -9,13 +9,25 @@ import { CustomCursor } from "./components/CustomCursor";
 import { useGameState } from "./hooks/useGameState";
 import { playHeartbeat, setHeartbeatStatus, playTapSound, playUIHover, playUISliderTick, playUIClick } from "./audio";
 import { CustomSelect, SelectOption } from "./components/CustomSelect";
-import { Difficulty } from "./types";
-import { Menu } from "lucide-react";
+import { Difficulty, isGrimCondition } from "./types";
+import { Menu, BookOpen, Sparkles } from "lucide-react";
 import { getControllerSettings } from "./controller";
 import { detectGpuHardware, GpuDetectionResult } from "./utils/hardwareDetector";
+import { TutorialOverlay } from "./tutorial/TutorialOverlay";
 
 export const getDifficultyConfig = (diff: Difficulty) => {
   switch (diff) {
+    case 'TUTORIAL':
+      return {
+        label: 'TUTORIAL',
+        textColor: 'text-cyan-400 font-bold',
+        borderColor: 'border-cyan-600/80 focus:border-cyan-400',
+        bgColor: 'bg-cyan-950/40 hover:bg-cyan-900/50',
+        glowShadow: 'shadow-[0_0_20px_rgba(6,182,212,0.35)]',
+        badgeBg: 'bg-cyan-950/90 text-cyan-400 border-cyan-700/80',
+        desc: 'Interactive Walkthrough | All 11 Items & Black Market | Core Twist & Probability | Surrender Concession',
+        intensity: 'TUTORIAL — GUIDED & ENFORCED BASELINE',
+      };
     case 'NORMAL':
       return {
         label: 'NORMAL',
@@ -97,26 +109,46 @@ export default function App() {
     roundsSurvived,
     shooter,
     target,
-    surrendered,
-    executionWeapon,
-    dealerSmirk,
-    isSurrenderAvailable,
     buyItem,
     startGame,
     fireGun,
     useItem,
     surrender,
+    hasSurrendered,
+    tutorialStepIndex,
+    setTutorialStepIndex,
+    restartTutorialStep,
+    applyTutorialStep
   } = useGameState();
 
   const [showDeathScreen, setShowDeathScreen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [selectedItemIndex, setSelectedItemIndex] = useState(0);
   const [isHigh, setIsHigh] = useState(false);
-  const [difficulty, setDifficulty] = useState<Difficulty>("NORMAL");
+  const [difficulty, setDifficulty] = useState<Difficulty>(() => {
+    try {
+      const hasPlayed = localStorage.getItem("russian_roulette_has_played");
+      if (!hasPlayed) return "TUTORIAL";
+      const saved = localStorage.getItem("russian_roulette_diff");
+      if (saved && ["TUTORIAL", "NORMAL", "HARD", "VERY_HARD", "NIGHTMARE"].includes(saved)) {
+        return saved as Difficulty;
+      }
+      return "TUTORIAL";
+    } catch {
+      return "TUTORIAL";
+    }
+  });
   const [inputType, setInputType] = useState<"kbm" | "gamepad">("kbm");
   const [bloodEffectsEnabled, setBloodEffectsEnabled] = useState(true);
   const [gpuDetection, setGpuDetection] = useState<GpuDetectionResult | null>(null);
   const [showHardwareWarning, setShowHardwareWarning] = useState(false);
+
+  const handleDifficultyChange = (val: Difficulty) => {
+    setDifficulty(val);
+    try {
+      localStorage.setItem("russian_roulette_diff", val);
+    } catch {}
+  };
 
   const diffConfig = getDifficultyConfig(difficulty);
 
@@ -193,7 +225,8 @@ export default function App() {
 
   const isPlayerTurn = gameState === "PLAYER_TURN";
   const showControls = isPlayerTurn;
-  const isActionInProgress = gameState === "SHOOTING" || gameState === "ITEM_USE" || gameState === "LOADING" || gameState === "DEALER_TURN";
+  const isActionInProgress = gameState === "SHOOTING" || gameState === "ITEM_USE" || gameState === "LOADING" || gameState === "DEALER_TURN" || gameState === "SURRENDER";
+  const canSurrender = isPlayerTurn && !hasSurrendered && gameState !== "SURRENDER" && isGrimCondition(player.health, player.maxHealth, dealer.health, activeDifficulty, chambers);
 
   useEffect(() => {
     if (selectedItemIndex >= player.items.length) {
@@ -206,8 +239,8 @@ export default function App() {
 
   useEffect(() => {
     const handleGlobalClick = (e: MouseEvent) => {
-      // Suppress UI click and tap sounds during revolver shooting / firing sequences
-      if (gameStateRef.current === "SHOOTING") {
+      // Suppress UI click and tap sounds during revolver shooting or surrender sequences
+      if (gameStateRef.current === "SHOOTING" || gameStateRef.current === "SURRENDER") {
         return;
       }
       const target = e.target as HTMLElement;
@@ -227,7 +260,7 @@ export default function App() {
     };
     
     const handleGlobalMouseOver = (e: MouseEvent) => {
-      if (gameStateRef.current === "SHOOTING") {
+      if (gameStateRef.current === "SHOOTING" || gameStateRef.current === "SURRENDER") {
         return;
       }
       const target = e.target as HTMLElement;
@@ -243,7 +276,7 @@ export default function App() {
 
     let lastSliderPlayTime = 0;
     const handleGlobalInput = (e: Event) => {
-      if (gameStateRef.current === "SHOOTING") {
+      if (gameStateRef.current === "SHOOTING" || gameStateRef.current === "SURRENDER") {
         return;
       }
       const target = e.target as HTMLInputElement;
@@ -330,6 +363,12 @@ export default function App() {
         if (e.key === "Escape") {
           setIsSettingsOpen(false);
         }
+        return;
+      }
+
+      if ((e.key === "x" || e.key === "X") && canSurrender) {
+        e.preventDefault();
+        surrender();
         return;
       }
 
@@ -520,7 +559,7 @@ export default function App() {
           <p className="text-gray-500 font-mono tracking-widest uppercase mb-12 text-sm">
             PULL THE TRIGGER. FACE THE DEALER.
           </p>
-          <div className="flex flex-col items-center gap-5 mb-12 max-w-md sm:max-w-lg w-full mx-auto px-2">
+          <div className="flex flex-col items-center gap-5 mb-8 max-w-md sm:max-w-lg w-full mx-auto px-2">
             <div className="flex items-center gap-4">
               <span className="text-neutral-400 font-mono text-xs uppercase tracking-widest font-bold">
                 Difficulty:
@@ -534,13 +573,14 @@ export default function App() {
                 <div className="w-[220px]">
                   <CustomSelect<Difficulty>
                     options={[
+                      { value: "TUTORIAL", label: "TUTORIAL", colorClass: "text-cyan-400 font-bold", description: "Interactive Walkthrough" },
                       { value: "NORMAL", label: "Normal", colorClass: "text-emerald-400 font-bold", description: "100 HP | Balanced" },
                       { value: "HARD", label: "Hard", colorClass: "text-amber-400 font-bold", description: "Tactical Dealer" },
                       { value: "VERY_HARD", label: "Very Hard", colorClass: "text-red-500 font-bold", description: "Aggressive Dealer" },
                       { value: "NIGHTMARE", label: "NIGHTMARE", colorClass: "text-fuchsia-400 font-bold", description: "Lethal Cosmic Master" }
                     ]}
                     value={difficulty}
-                    onChange={(val) => setDifficulty(val)}
+                    onChange={(val) => handleDifficultyChange(val)}
                     showIndustrialScrollbar={false}
                     buttonClassName={`min-w-[200px] uppercase font-mono tracking-widest ${diffConfig.borderColor} ${diffConfig.bgColor} ${diffConfig.glowShadow}`}
                   />
@@ -576,7 +616,12 @@ export default function App() {
             </button>
           </div>
           <button
-            onClick={() => startGame(difficulty)}
+            onClick={() => {
+              try {
+                localStorage.setItem("russian_roulette_has_played", "true");
+              } catch {}
+              startGame(difficulty);
+            }}
             className="btn-rusty px-12 py-4 text-xl font-bold tracking-[0.3em] flex items-center justify-center gap-4 cursor-pointer"
           >
             {inputType === "gamepad" && (
@@ -584,7 +629,7 @@ export default function App() {
                 A
               </span>
             )}
-            ENTER THE CHAMBER
+            {difficulty === "TUTORIAL" ? "START TUTORIAL" : "ENTER THE CHAMBER"}
           </button>
         </div>
       ) : (
@@ -615,15 +660,13 @@ export default function App() {
               shooter={shooter}
               target={target}
               surrender={surrender}
-              surrendered={surrendered}
-              executionWeapon={executionWeapon}
-              dealerSmirk={dealerSmirk}
-              isSurrenderAvailable={isSurrenderAvailable}
+              hasSurrendered={hasSurrendered}
             />
           </div>
 
           {/* Immersive high-contrast floating overlay HUD */}
-          <div className="fixed inset-0 flex flex-col justify-between p-8 z-10 pointer-events-none select-none">
+          {!hasSurrendered && gameState !== "SURRENDER" && (
+            <div className="fixed inset-0 flex flex-col justify-between p-8 z-10 pointer-events-none select-none">
                   {(player.health > 0 || gameState === "MENU") && !isActionInProgress && (
               <button
                  onClick={() => {
@@ -646,8 +689,8 @@ export default function App() {
             {/* Difficulty-Scaled Cylinder Load Overlay HUD */}
             {gameState !== "MENU" && unspentTotal > 0 && (
               <>
-                {/* 1. NORMAL MODE: Full Physical Shell Count */}
-                {activeDifficulty === "NORMAL" && (
+                {/* 1. TUTORIAL & NORMAL MODE: Full Physical Shell Count */}
+                {(activeDifficulty === "NORMAL" || activeDifficulty === "TUTORIAL") && (
                   <div className="pointer-events-auto absolute bottom-6 left-6 sm:bottom-8 sm:left-8 z-40 flex flex-col gap-1.5 frosted-glass-ui backdrop-blur-md px-3.5 py-2.5 border border-neutral-800/90 border-l-2 border-l-red-600/90 select-none font-mono text-[10px] min-w-[170px] shadow-[0_8px_32px_rgba(0,0,0,0.85)] animate-fade-in">
                     <div className="flex items-center justify-between gap-3 text-neutral-400 font-extrabold uppercase tracking-widest text-[9px] border-b border-neutral-800/80 pb-1">
                       <span>CYLINDER LOAD</span>
@@ -785,6 +828,30 @@ export default function App() {
               </div>
             </div>
 
+            {/* Surrender Button: Appears during grim conditions */}
+            {canSurrender && (
+              <div className="pointer-events-auto absolute bottom-20 right-6 sm:bottom-22 sm:right-8 z-40 select-none font-mono animate-fade-in">
+                <button
+                  id="btn-surrender"
+                  onClick={() => surrender()}
+                  className="group flex flex-col gap-1 frosted-glass-ui backdrop-blur-md px-3.5 py-2 border border-neutral-800/90 border-r-2 border-r-red-600/90 hover:border-red-600/80 bg-neutral-950/85 hover:bg-neutral-900/95 transition-all duration-150 text-left min-w-[170px] shadow-[0_8px_32px_rgba(0,0,0,0.85)] cursor-pointer"
+                >
+                  <div className="flex items-center justify-between gap-3 text-neutral-400 group-hover:text-red-400 font-extrabold uppercase tracking-widest text-[9px] border-b border-neutral-800/80 pb-1 w-full">
+                    <span>CONCEDE ROUND</span>
+                    <span className="text-neutral-500 font-mono font-semibold text-[8px] border border-neutral-800 px-1 py-0.2 bg-black/60 group-hover:text-red-300">
+                      [X]
+                    </span>
+                  </div>
+
+                  <div className="flex items-center justify-between gap-2 pt-0.5 w-full">
+                    <span className="text-red-500 group-hover:text-red-400 font-extrabold text-xs sm:text-sm tracking-widest uppercase">
+                      SURRENDER
+                    </span>
+                  </div>
+                </button>
+              </div>
+            )}
+
             {/* Dialogue Box: Centered precisely above the bottom shoot self hitbox, borderless and highly legible */}
             {gameState !== "SHOOTING" &&
               !(gameState === "GAME_OVER" && player.health <= 0) && (
@@ -799,7 +866,27 @@ export default function App() {
                 )}
               </div>
             )}
+
+            {/* Tactical Scripted Tutorial Overlay */}
+            {activeDifficulty === 'TUTORIAL' && gameState !== 'MENU' && (
+              <TutorialOverlay
+                currentStepIndex={tutorialStepIndex}
+                onSetStepIndex={setTutorialStepIndex}
+                onRestartStep={restartTutorialStep}
+                onSkipTutorial={() => {
+                  handleDifficultyChange('NORMAL');
+                  startGame('NORMAL');
+                }}
+                onFinishTutorial={() => {
+                  handleDifficultyChange('NORMAL');
+                  startGame('NORMAL');
+                }}
+                inputType={inputType}
+                doubleDamageActive={doubleDamageActive}
+              />
+            )}
           </div>
+        )}
         </>
       )}
 

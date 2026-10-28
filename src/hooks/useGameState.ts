@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { GameState, Chamber, PlayerState, ItemType, Difficulty } from '../types';
 import { DEADLY_QUOTES, getRandomItemsByDifficulty, getItemPrice } from '../gameData';
+import { TUTORIAL_STEPS, TutorialStep } from '../tutorial/tutorialData';
 import { playStartAudio, startAmbientDrone, playGunshot, playEmptyClick, playItemSound, playBloodSplatter } from '../audio';
 import { vibrateGamepad, getControllerSettings } from '../controller';
 
@@ -41,36 +42,9 @@ interface CoreState {
   roundsSurvived: number;
   shooter: 'player' | 'dealer' | null;
   target: 'player' | 'dealer' | null;
-  surrendered: boolean;
-  executionWeapon: 'revolver' | 'shotgun' | null;
-  dealerSmirk: boolean;
+  hasSurrendered: boolean;
+  tutorialStepIndex: number;
 }
-
-export const SURRENDER_LOW_HP_THRESHOLD: Record<Difficulty, number> = {
-  NORMAL: 35,
-  HARD: 25,
-  VERY_HARD: 20,
-  NIGHTMARE: 10,
-};
-
-export const isSurrenderAvailableFor = (
-  gameState: GameState,
-  difficulty: Difficulty,
-  player: PlayerState,
-  dealer: PlayerState,
-  surrendered: boolean,
-): boolean => {
-  if (surrendered) return false;
-  if (gameState !== 'PLAYER_TURN') return false;
-  if (player.health <= 0) return false;
-  const lowThreshold = SURRENDER_LOW_HP_THRESHOLD[difficulty] ?? 30;
-  const healthPct = player.maxHealth > 0 ? player.health / player.maxHealth : 1;
-  const isCriticallyLow = player.health <= lowThreshold;
-  const isOneShotFromDeath = player.health <= DAMAGE_PER_SHOT;
-  const isLowPct = healthPct <= 0.35;
-  const isHopelessGap = dealer.health - player.health >= 50 && player.health <= 50;
-  return isCriticallyLow || isOneShotFromDeath || isLowPct || isHopelessGap;
-};
 
 export const useGameState = () => {
   const [state, setState] = useState<CoreState>({
@@ -92,9 +66,8 @@ export const useGameState = () => {
     roundsSurvived: 0,
     shooter: null,
     target: null,
-    surrendered: false,
-    executionWeapon: null,
-    dealerSmirk: false
+    hasSurrendered: false,
+    tutorialStepIndex: 0
   });
 
   const stateRef = useRef<CoreState>(state);
@@ -121,12 +94,12 @@ export const useGameState = () => {
       chambers: newChambers,
       currentChamberIndex: 0,
       retaliationActive: false,
+      doubleDamageActive: null,
+      hasSurrendered: false,
       message: "Loading the cylinder...",
       subMessage: `${live} live rounds, ${CYLINDER_SIZE - live} blanks.`,
       shooter: null,
-      target: null,
-      dealerSmirk: false,
-      executionWeapon: null
+      target: null
     });
     
     if (!initialLoading) {
@@ -148,9 +121,68 @@ export const useGameState = () => {
     });
   };
 
+  const applyTutorialStep = useCallback((stepIdx: number) => {
+    const clampedIdx = Math.max(0, Math.min(TUTORIAL_STEPS.length - 1, stepIdx));
+    const step = TUTORIAL_STEPS[clampedIdx];
+    if (!step) return;
+
+    const setup = step.scriptedSetup || {};
+    const newChambers = setup.chambers
+      ? setup.chambers.map(c => ({ ...c }))
+      : [
+          { isLive: false, isSpent: false },
+          { isLive: true, isSpent: false },
+          { isLive: false, isSpent: true },
+          { isLive: true, isSpent: true },
+          { isLive: false, isSpent: true },
+          { isLive: false, isSpent: true }
+        ];
+
+    updateState({
+      tutorialStepIndex: clampedIdx,
+      difficulty: 'TUTORIAL',
+      chambers: newChambers,
+      currentChamberIndex: setup.currentChamberIndex ?? 0,
+      player: {
+        health: setup.playerHealth ?? 100,
+        maxHealth: 100,
+        items: setup.playerItems ? [...setup.playerItems] : []
+      },
+      dealer: {
+        health: setup.dealerHealth ?? 100,
+        maxHealth: 100,
+        items: setup.dealerItems ? [...setup.dealerItems] : []
+      },
+      bloodCurrency: setup.bloodCurrency ?? 0,
+      gameState: (setup.initialTurn === 'dealer' || clampedIdx === 10) ? 'DEALER_TURN' : 'PLAYER_TURN',
+      message: step.title,
+      subMessage: step.objective,
+      doubleDamageActive: null,
+      retaliationActive: false,
+      playerDamageReductionEnd: null,
+      dealerDamageReductionEnd: null,
+      shooter: null,
+      target: null,
+      hasSurrendered: false
+    });
+  }, [updateState]);
+
+  const setTutorialStepIndex = useCallback((index: number) => {
+    applyTutorialStep(index);
+  }, [applyTutorialStep]);
+
+  const restartTutorialStep = useCallback(() => {
+    applyTutorialStep(stateRef.current.tutorialStepIndex);
+  }, [applyTutorialStep]);
+
   const startGame = async (difficulty: Difficulty = 'NORMAL', nextRound = false) => {
     playStartAudio();
     startAmbientDrone();
+
+    if (difficulty === 'TUTORIAL') {
+      applyTutorialStep(0);
+      return;
+    }
     
     let pHealth = 100, pItems = 3, dHealth = 100, dItems = 3;
     switch(difficulty) {
@@ -181,9 +213,7 @@ export const useGameState = () => {
       dealerDamageReductionEnd: null,
       shooter: null,
       target: null,
-      surrendered: false,
-      executionWeapon: null,
-      dealerSmirk: false
+      hasSurrendered: false
     });
     await startRound(true);
   };
@@ -263,8 +293,10 @@ export const useGameState = () => {
       
       let damage = target === shooter ? (DAMAGE_PER_SHOT * 2) : DAMAGE_PER_SHOT; // Severe consequence for shooting self
       
-      if (updatedState.doubleDamageActive === shooter) {
-          damage *= 2;
+      if (updatedState.doubleDamageActive) {
+          if (updatedState.doubleDamageActive === shooter) {
+            damage *= 2;
+          }
           updateState({ doubleDamageActive: null }); // clear buff
       }
       
@@ -293,6 +325,48 @@ export const useGameState = () => {
       const isDeadlyToPlayer = target === 'player' && updatedState.player.health <= 0;
       await wait(isDeadlyToPlayer ? 300 : 1200);
       
+      if (updatedState.difficulty === 'TUTORIAL') {
+        if (target === 'dealer' && shooter === 'player') {
+          if (updatedState.tutorialStepIndex === 2) {
+            updateState({
+              message: "Direct hit on Dealer! +25 Blood harvested.",
+              subMessage: "Live shell inflicted 35 damage. Blood added to reserves."
+            });
+            setTimeout(() => {
+              applyTutorialStep(3);
+            }, 1800);
+            return;
+          }
+          if (updatedState.tutorialStepIndex === 6) {
+            updateState({
+              message: "Double damage strike! 70 HP dealt.",
+              subMessage: "Mirror deduction + Scalpel sawed-off is a guaranteed kill combo."
+            });
+            setTimeout(() => {
+              applyTutorialStep(7);
+            }, 1800);
+            return;
+          }
+        } else if (target === 'player' && shooter === 'player') {
+          updateState({
+            message: "TACTICAL ERROR: Discharged live round into yourself!",
+            subMessage: "Confirmed live rounds must always be directed at the Dealer (-70 HP penalty)."
+          });
+          setTimeout(() => {
+            applyTutorialStep(updatedState.tutorialStepIndex);
+          }, 2200);
+          return;
+        } else if (target === 'player' && shooter === 'dealer' && updatedState.tutorialStepIndex === 10) {
+          // Keep player alive at minimum 30 HP during the educational demonstration
+          const p = updatedState.player;
+          updateState({
+            player: { ...p, health: Math.max(30, p.health - damage) },
+            message: "Dealer landed guaranteed live hit!",
+            subMessage: "Scalpel double damage inflicted 70 HP."
+          });
+        }
+      }
+
       advanceChamber();
       if (await checkRoundOver()) return;
       
@@ -300,6 +374,38 @@ export const useGameState = () => {
     } else {
       playEmptyClick();
       vibrateGamepad('weak');
+
+      if (updatedState.doubleDamageActive) {
+        updateState({ doubleDamageActive: null });
+      }
+
+      if (updatedState.difficulty === 'TUTORIAL') {
+        if (target === 'player' && shooter === 'player') {
+          updateState({
+            gameState: 'PLAYER_TURN',
+            message: "Empty chamber! 0 Damage.",
+            subMessage: "Discharging a blank at yourself gives a free turn!"
+          });
+          if (updatedState.tutorialStepIndex === 1) {
+            setTimeout(() => {
+              applyTutorialStep(2);
+            }, 1600);
+            return;
+          }
+        } else if (target === 'dealer' && shooter === 'player') {
+          if (updatedState.tutorialStepIndex === 1) {
+            updateState({
+              gameState: 'PLAYER_TURN',
+              message: "TACTICAL MISTAKE: You fired a blank at the Dealer!",
+              subMessage: "Shooting a blank at the Dealer loses your turn. Shooting yourself keeps it."
+            });
+            setTimeout(() => {
+              applyTutorialStep(1);
+            }, 2200);
+            return;
+          }
+        }
+      }
 
       if (shooter === 'player' && target === 'dealer') {
         updateState({
@@ -474,6 +580,37 @@ export const useGameState = () => {
     }
     
     await wait(waitTime);
+
+    if (s2.difficulty === 'TUTORIAL') {
+      if (user === 'player') {
+        if (item === 'MIRROR' && s2.tutorialStepIndex === 5) {
+          updateState({
+            message: "Mirror reflects the chamber: LIVE round loaded!",
+            subMessage: "With confirmed live certainty, saw off the barrel with a Scalpel."
+          });
+          setTimeout(() => applyTutorialStep(6), 1400);
+          return;
+        }
+        if (item === 'SCALPEL' && s2.tutorialStepIndex === 6) {
+          updateState({
+            gameState: 'PLAYER_TURN',
+            doubleDamageActive: 'player',
+            message: "Barrel sawed off! 2x damage active (70 HP).",
+            subMessage: "Now aim at the Dealer and pull the trigger!"
+          });
+          return;
+        }
+        if (item === 'WHISKEY' && s2.tutorialStepIndex === 7) {
+          updateState({
+            message: "Vitality restored: +20 Health recovered.",
+            subMessage: "Healing items keep you alive during high-stakes shootouts."
+          });
+          setTimeout(() => applyTutorialStep(8), 1400);
+          return;
+        }
+      }
+    }
+
     updateState({ 
         gameState: user === 'player' ? 'PLAYER_TURN' : 'DEALER_TURN',
         message: `${user === 'player' ? 'Your' : "The Dealer's"} turn continues.`,
@@ -486,6 +623,87 @@ export const useGameState = () => {
   
   useEffect(() => {
     if (state.gameState === 'DEALER_TURN' && !aiRef.current) {
+      if (state.difficulty === 'TUTORIAL') {
+        if (state.tutorialStepIndex === 10) {
+          aiRef.current = true;
+          const playEducationalTutorialDealerTurn = async () => {
+            if (stateRef.current.gameState !== 'DEALER_TURN') {
+              aiRef.current = false;
+              return;
+            }
+
+            // Phase 1: AI Mathematical & Probability Analysis
+            updateState({
+              message: "DEALER AI (REASONING LLM): Calculating optimal odds...",
+              subMessage: "Powered by reasoning LLM with local tactical fallback. 1 Blank, 1 Live remain."
+            });
+            await wait(2200);
+
+            // Phase 2: AI Item Usage (Mirror)
+            const dItems = stateRef.current.dealer.items;
+            const mirrorIdx = dItems.indexOf('MIRROR');
+            if (mirrorIdx !== -1) {
+              updateState({
+                message: "DEALER AI: Deploying Mirror to verify active chamber...",
+                subMessage: "Inspecting Chamber without discharging or rotating cylinder."
+              });
+              await wait(800);
+              await useItem(mirrorIdx, 'dealer');
+              await wait(1800);
+            }
+
+            // Phase 3: Rational Deduction & Blank Self-Shot (Free Turn Retention)
+            updateState({
+              message: "DEALER AI DEDUCTION: Active chamber is confirmed BLANK.",
+              subMessage: "Optimal strategy: Shoot self for 0 damage and retain turn!"
+            });
+            await wait(2000);
+            await fireGun('dealer', 'dealer');
+            await wait(2000);
+
+            // Phase 4: Exploiting Free Turn with 100% Live Round & Scalpel
+            updateState({
+              message: "DEALER AI: Free turn retained! Only 1 round remains: 100% LIVE.",
+              subMessage: "Equipping Scalpel to saw off barrel for double damage (70 HP)..."
+            });
+            await wait(2000);
+
+            const scalpelIdx = stateRef.current.dealer.items.indexOf('SCALPEL');
+            if (scalpelIdx !== -1) {
+              await useItem(scalpelIdx, 'dealer');
+              await wait(1800);
+            }
+
+            // Phase 5: Executing Guaranteed Lethal Strike on Player
+            updateState({
+              message: "DEALER AI: Aiming sawed-off barrel at Player...",
+              subMessage: "100% guaranteed hit for maximum damage."
+            });
+            await wait(1800);
+            await fireGun('player', 'dealer');
+            await wait(2200);
+
+            // Phase 6: Educational Debrief & Graduation Transition
+            updateState({
+              message: "AI MASTERCLASS DEMONSTRATION COMPLETE.",
+              subMessage: "Mirror deduction -> Blank self-shot for free turn -> Scalpel double damage."
+            });
+            aiRef.current = false;
+            await wait(3200);
+            applyTutorialStep(11);
+          };
+          playEducationalTutorialDealerTurn();
+          return;
+        }
+
+        // In any other tutorial step where turn passes to dealer, yield back to player
+        updateState({
+          gameState: 'PLAYER_TURN',
+          message: "Follow the directive to proceed.",
+          subMessage: ""
+        });
+        return;
+      }
       aiRef.current = true;
       const playDealerTurn = async () => {
         // Double check state isn't changing to stop runaway execution
@@ -515,47 +733,74 @@ export const useGameState = () => {
         // --- MULTI-PROVIDER AI DEALER INTEGRATION ---
         try {
           const activeDifficulty = currentRef.difficulty || 'NORMAL';
-          const timeoutMs = activeDifficulty === 'NIGHTMARE' ? 20000 : activeDifficulty === 'VERY_HARD' ? 15000 : activeDifficulty === 'HARD' ? 10000 : 5000;
-          const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
           const aiSettings = getControllerSettings();
+          const provider = (aiSettings.aiProvider || 'gemini').toLowerCase();
+          const isGemini = provider === 'gemini';
+          const requestedModel = (aiSettings.aiCustomModel || '').trim();
+          const modelToUse = requestedModel || (isGemini ? 'gemini-3.8-flash' : '');
 
-          const apiRes = await fetch('/api/ai-dealer', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              provider: aiSettings.aiProvider || 'gemini',
-              apiKey: aiSettings.aiApiKey || '',
-              customModel: aiSettings.aiCustomModel || '',
-              difficulty: activeDifficulty,
-              dealer: currentRef.dealer,
-              player: currentRef.player,
-              liveCount: lCount,
-              blankCount: bCount,
-              retaliationActive: currentRef.retaliationActive,
-              doubleDamageActive: currentRef.doubleDamageActive,
-              dealerDamageReductionEnd: currentRef.dealerDamageReductionEnd,
-              playerDamageReductionEnd: currentRef.playerDamageReductionEnd,
-              itemsUsedThisTurn: dealerItemsUsedThisTurnRef.current
-            }),
-            signal: controller.signal
-          });
-          clearTimeout(timeoutId);
-
-          if (apiRes.ok) {
-            const decision = await apiRes.json();
-            if (stateRef.current.gameState === 'DEALER_TURN') {
-              if (decision.action === 'USE_ITEM' && typeof decision.itemIndex === 'number' && decision.itemIndex >= 0 && decision.itemIndex < myItems.length) {
-                console.log(`[AI Dealer (${aiSettings.aiProvider || 'gemini'})]`, decision.reasoning);
-                aiRef.current = false;
-                useItem(decision.itemIndex, 'dealer');
-                return;
-              } else if (decision.action === 'SHOOT' && (decision.target === 'player' || decision.target === 'dealer')) {
-                console.log(`[AI Dealer (${aiSettings.aiProvider || 'gemini'})]`, decision.reasoning);
-                aiRef.current = false;
-                fireGun(decision.target, 'dealer');
-                return;
+          // Helper to fetch decision with timeout and abort controller
+          const fetchDecision = async (modelToUse: string, timeoutMs: number) => {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+            try {
+              const apiRes = await fetch('/api/ai-dealer', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  provider: aiSettings.aiProvider || 'gemini',
+                  apiKey: aiSettings.aiApiKey || '',
+                  customModel: modelToUse,
+                  model: modelToUse,
+                  difficulty: activeDifficulty,
+                  dealer: currentRef.dealer,
+                  player: currentRef.player,
+                  liveCount: lCount,
+                  blankCount: bCount,
+                  retaliationActive: currentRef.retaliationActive,
+                  doubleDamageActive: currentRef.doubleDamageActive,
+                  dealerDamageReductionEnd: currentRef.dealerDamageReductionEnd,
+                  playerDamageReductionEnd: currentRef.playerDamageReductionEnd,
+                  itemsUsedThisTurn: dealerItemsUsedThisTurnRef.current
+                }),
+                signal: controller.signal
+              });
+              clearTimeout(timeoutId);
+              if (!apiRes.ok) {
+                throw new Error(`AI request failed with HTTP ${apiRes.status}`);
               }
+              return await apiRes.json();
+            } finally {
+              clearTimeout(timeoutId);
+            }
+          };
+
+          // Timer to mask any extra latency with "The Dealer is thinking hard..."
+          const deepThinkingTimer = setTimeout(() => {
+            if (stateRef.current.gameState === 'DEALER_TURN') {
+              updateState({ message: "The Dealer is thinking hard..." });
+            }
+          }, 2500);
+
+          let decision: any = null;
+          try {
+            const timeoutMs = activeDifficulty === 'NIGHTMARE' ? 20000 : activeDifficulty === 'VERY_HARD' ? 15000 : activeDifficulty === 'HARD' ? 10000 : 7000;
+            decision = await fetchDecision(modelToUse, timeoutMs);
+          } finally {
+            clearTimeout(deepThinkingTimer);
+          }
+
+          if (decision && !decision.error && stateRef.current.gameState === 'DEALER_TURN') {
+            if (decision.action === 'USE_ITEM' && typeof decision.itemIndex === 'number' && decision.itemIndex >= 0 && decision.itemIndex < myItems.length) {
+              console.log(`[AI Dealer (${aiSettings.aiProvider || 'gemini'})]`, decision.reasoning);
+              aiRef.current = false;
+              useItem(decision.itemIndex, 'dealer');
+              return;
+            } else if (decision.action === 'SHOOT' && (decision.target === 'player' || decision.target === 'dealer')) {
+              console.log(`[AI Dealer (${aiSettings.aiProvider || 'gemini'})]`, decision.reasoning);
+              aiRef.current = false;
+              fireGun(decision.target, 'dealer');
+              return;
             }
           }
         } catch (err) {
@@ -679,59 +924,6 @@ export const useGameState = () => {
     }
   }, [state.gameState, state.turnSequence]); // Trigger on every state update while dealer turn matches
 
-  const isSurrenderAvailable = isSurrenderAvailableFor(
-    state.gameState,
-    state.difficulty,
-    state.player,
-    state.dealer,
-    state.surrendered,
-  );
-
-  const surrender = async () => {
-    const s = stateRef.current;
-    if (s.gameState !== 'PLAYER_TURN' || s.player.health <= 0 || s.surrendered) return;
-    if (!isSurrenderAvailableFor(s.gameState, s.difficulty, s.player, s.dealer, s.surrendered)) return;
-
-    // Player drops the revolver. Dealer draws a shotgun, smirks, and executes with an always-live round.
-    updateState({
-      gameState: 'SHOOTING',
-      shooter: 'dealer',
-      target: 'player',
-      surrendered: true,
-      executionWeapon: 'shotgun',
-      dealerSmirk: true,
-      retaliationActive: false,
-      doubleDamageActive: null,
-      message: 'You drop the gun.',
-      subMessage: 'The Dealer smiles, grin stretches wide.',
-    });
-
-    await wait(2200);
-
-    // Always-live shotgun blast: instant death to 0 HP, bypassing shields/reductions.
-    playGunshot();
-    vibrateGamepad('strong');
-    setTimeout(playBloodSplatter, 120);
-    const cur = stateRef.current;
-    updateState({
-      player: { ...cur.player, health: 0 },
-      bloodLevel: 180,
-      message: 'The Dealer smiles.',
-      subMessage: 'No mercy for the broken.',
-    });
-
-    await wait(1400);
-    setTimeout(() => {
-      if (stateRef.current.surrendered) updateState({ bloodLevel: 100 });
-    }, 600);
-
-    updateState({
-      gameState: 'GAME_OVER',
-      message: '',
-      subMessage: '',
-    });
-  };
-
   const buyItem = (itemType: ItemType, cost: number) => {
       if (stateRef.current.bloodCurrency >= cost && stateRef.current.player.items.length < 8) {
           const p = stateRef.current.player;
@@ -739,18 +931,58 @@ export const useGameState = () => {
               bloodCurrency: stateRef.current.bloodCurrency - cost,
               player: { ...p, items: [...p.items, itemType] }
           });
+          if (stateRef.current.difficulty === 'TUTORIAL' && stateRef.current.tutorialStepIndex === 8) {
+            updateState({
+              message: "Item purchased from Black Market!",
+              subMessage: "Acquired supplies immediately enter your 8-slot active rack."
+            });
+            setTimeout(() => applyTutorialStep(9), 1400);
+          }
       }
+  };
+
+  const surrender = async () => {
+    if (stateRef.current.gameState !== 'PLAYER_TURN') return;
+    if (stateRef.current.player.health <= 0) return;
+
+    updateState({
+      gameState: 'SURRENDER',
+      hasSurrendered: true,
+      shooter: 'dealer',
+      target: 'player',
+      message: "",
+      subMessage: ""
+    });
+
+    // 4.2s cinematic sequence: drop gun -> dealer sadistic smirk -> pull out shotgun -> rack pump -> aim -> BLAST!
+    await wait(4200);
+
+    const p = stateRef.current.player;
+    updateState({
+      player: { ...p, health: 0 },
+      bloodLevel: 150,
+      message: "",
+      subMessage: ""
+    });
+
+    await wait(500);
+    updateState({ bloodLevel: 0 });
+
+    await wait(1000);
+    await checkRoundOver();
   };
 
   return {
     ...state,
     liveCount,
     blankCount,
-    isSurrenderAvailable,
     startGame,
     fireGun,
     useItem,
     buyItem,
-    surrender
+    surrender,
+    setTutorialStepIndex,
+    restartTutorialStep,
+    applyTutorialStep
   };
 };

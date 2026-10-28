@@ -169,10 +169,13 @@ export class WebGPUAdvancedPipeline {
       }
 
       // 5. Upscaling & Sharpening (FSR1 / RCAS) - Active on both WebGPU and WebGL
-      try {
-        currentNode = fsr1(currentNode, rcasSharpness);
-      } catch (e) {
-        console.warn('FSR1 pass setup fallback:', e);
+      // In Native mode (100% resolution), FSR1 upsampling and RCAS sharpening are disabled
+      if (upscaling !== 'native') {
+        try {
+          currentNode = fsr1(currentNode, rcasSharpness);
+        } catch (e) {
+          console.warn('FSR1 pass setup fallback:', e);
+        }
       }
 
       this.renderPipeline.outputNode = currentNode;

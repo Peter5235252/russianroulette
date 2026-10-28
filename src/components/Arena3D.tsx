@@ -9,10 +9,31 @@ import { WebGPUComputeSparksSystem } from '../graphics/WebGPUComputeSparks';
 import { WebGPUVolumetricSmokeSystem } from '../graphics/WebGPUVolumetricSmoke';
 import { WebGPUAdvancedPipeline } from '../graphics/WebGPUAdvancedPipeline';
 import { motion } from 'motion/react';
-import { GameState, Chamber, PlayerState, ItemType, Difficulty } from '../types';
+import { GameState, Chamber, PlayerState, ItemType, Difficulty, isGrimCondition } from '../types';
 import { getItemPrice, ITEM_METADATA, getRarityTagHtml } from '../gameData';
-import { playBulletLoad, playPurchaseSound, playSyringeCap, playSyringeSlam, playThumpSound, playMirrorInspect, playWhiskeyDrink, playTourniquetTighten, playPentagramChant, playDefibrillatorShock, playMedkitOpen, playRazorSlice, playScalpelCut, playCigaretteLighting, playSmokeExhale, playPliersSound } from '../audio';
-import { getControllerSettings } from '../controller';
+import {
+  playBulletLoad,
+  playPurchaseSound,
+  playSyringeCap,
+  playSyringeSlam,
+  playThumpSound,
+  playMirrorInspect,
+  playWhiskeyDrink,
+  playTourniquetTighten,
+  playPentagramChant,
+  playDefibrillatorShock,
+  playMedkitOpen,
+  playRazorSlice,
+  playScalpelCut,
+  playCigaretteLighting,
+  playSmokeExhale,
+  playPliersSound,
+  playGunDropSound,
+  playShotgunPumpSound,
+  playShotgunBlastSound,
+  playDealerSadisticLaugh,
+} from '../audio';
+import { getControllerSettings, subscribeControllerSettings } from '../controller';
 import { createWebGPURenderer, isWebGPUSupported } from '../renderers/RendererManager';
 import { updateGamepads, vibrateGamepad } from '../controller';
 import { AlertCircle, Terminal, Cpu, RefreshCw, ShieldCheck } from 'lucide-react';
@@ -40,10 +61,7 @@ interface Arena3DProps {
   shooter: 'player' | 'dealer' | null;
   target: 'player' | 'dealer' | null;
   surrender?: () => void;
-  surrendered?: boolean;
-  executionWeapon?: 'revolver' | 'shotgun' | null;
-  dealerSmirk?: boolean;
-  isSurrenderAvailable?: boolean;
+  hasSurrendered?: boolean;
 }
 
 const ITEM_DESCS: Record<string, string> = {
@@ -108,10 +126,7 @@ export function Arena3D({
   shooter,
   target,
   surrender,
-  surrendered = false,
-  executionWeapon = null,
-  dealerSmirk = false,
-  isSurrenderAvailable = false,
+  hasSurrendered = false,
 }: Arena3DProps) {
   const [inputType, setInputType] = useState<'kbm' | 'gamepad'>('kbm');
   const [graphics, setGraphics] = useState({
@@ -124,33 +139,38 @@ export function Arena3D({
       polygonCount: 'low'
   });
 
+  const [pipelineEngine, setPipelineEngine] = useState<'webgpu' | 'webgl'>(() => {
+    const s = getControllerSettings();
+    return s.useWebGPU !== false ? 'webgpu' : 'webgl';
+  });
+
   useEffect(() => {
-    // Initial fetch and subscription
-    import('../controller').then(({ getControllerSettings, subscribeControllerSettings }) => {
-       const initialSettings = getControllerSettings();
-       setInputType(initialSettings.inputType || 'kbm');
+    const initialSettings = getControllerSettings();
+    setInputType(initialSettings.inputType || 'kbm');
+    setGraphics({
+        antiAliasing: initialSettings.antiAliasing || 'fxaa',
+        postProcessing: initialSettings.postProcessing || 'low',
+        shadowQuality: initialSettings.shadowQuality || 'low',
+        textureFiltering: initialSettings.textureFiltering || 2,
+        materialEnhancements: initialSettings.materialEnhancements !== false,
+        bloomIntensity: initialSettings.bloomIntensity ?? 0.2,
+        polygonCount: initialSettings.polygonCount || 'low'
+    });
+    const unsub = subscribeControllerSettings(s => {
+       setInputType(s.inputType);
+       const targetEngine = s.useWebGPU !== false ? 'webgpu' : 'webgl';
+       setPipelineEngine(prev => (prev !== targetEngine ? targetEngine : prev));
        setGraphics({
-           antiAliasing: initialSettings.antiAliasing || 'fxaa',
-           postProcessing: initialSettings.postProcessing || 'low',
-           shadowQuality: initialSettings.shadowQuality || 'low',
-           textureFiltering: initialSettings.textureFiltering || 2,
-           materialEnhancements: initialSettings.materialEnhancements !== false,
-           bloomIntensity: initialSettings.bloomIntensity ?? 0.2,
-           polygonCount: initialSettings.polygonCount || 'low'
-       });
-       subscribeControllerSettings(s => {
-          setInputType(s.inputType);
-          setGraphics({
-             antiAliasing: s.antiAliasing || 'fxaa',
-             postProcessing: s.postProcessing || 'low',
-             shadowQuality: s.shadowQuality || 'low',
-             textureFiltering: s.textureFiltering || 2,
-             materialEnhancements: s.materialEnhancements !== false,
-             bloomIntensity: s.bloomIntensity ?? 0.2,
-             polygonCount: s.polygonCount || 'low'
-          });
+          antiAliasing: s.antiAliasing || 'fxaa',
+          postProcessing: s.postProcessing || 'low',
+          shadowQuality: s.shadowQuality || 'low',
+          textureFiltering: s.textureFiltering || 2,
+          materialEnhancements: s.materialEnhancements !== false,
+          bloomIntensity: s.bloomIntensity ?? 0.2,
+          polygonCount: s.polygonCount || 'low'
        });
     });
+    return () => unsub();
   }, []);
 
   const containerRef = useRef<HTMLDivElement>(null);
@@ -272,10 +292,8 @@ export function Arena3D({
     graphics,
     shooter: shooter,
     target: target,
-    surrendered,
-    executionWeapon,
-    dealerSmirk,
-    isSurrenderAvailable,
+    surrender,
+    hasSurrendered,
   });
 
   useEffect(() => {
@@ -302,10 +320,8 @@ export function Arena3D({
       graphics,
       shooter,
       target,
-      surrendered,
-      executionWeapon,
-      dealerSmirk,
-      isSurrenderAvailable,
+      surrender,
+      hasSurrendered,
     };
   }, [
     gameState,
@@ -326,10 +342,7 @@ export function Arena3D({
     graphics,
     shooter,
     target,
-    surrendered,
-    executionWeapon,
-    dealerSmirk,
-    isSurrenderAvailable,
+    hasSurrendered,
   ]);
 
   // Persist animation state across prop updates to prevent double-animations
@@ -419,7 +432,14 @@ export function Arena3D({
     syringeFluidOscillation: 0,
     syringeFluidOscVel: 0,
     prevItemPos: new THREE.Vector3(),
-    prevItemRot: new THREE.Euler()
+    prevItemRot: new THREE.Euler(),
+    surrenderStartTime: 0,
+    hasPlayedSurrenderGunDrop: false,
+    hasPlayedSurrenderSmirkSound: false,
+    hasPlayedSurrenderPumpSound: false,
+    hasPlayedSurrenderBlastSound: false,
+    shotgunGroup: null as THREE.Group | null,
+    shotgunPumpGroup: null as THREE.Group | null,
   });
 
   useEffect(() => {
@@ -678,6 +698,28 @@ export function Arena3D({
       return grp;
     };
 
+    // Shared flame geometries and materials to avoid runtime allocation and shader compile spikes
+    const sharedFlameGeo = new THREE.ConeGeometry(0.018, 0.075, 12);
+    const sharedInnerFlameGeo = new THREE.ConeGeometry(0.008, 0.035, 10);
+    const sharedFlameMat = new THREE.MeshStandardMaterial({
+      color: 0xffa500,
+      emissive: 0xff5500,
+      emissiveIntensity: 5.5,
+      transparent: true,
+      opacity: 0.92,
+      roughness: 0.5,
+      metalness: 0.0
+    });
+    const sharedInnerFlameMat = new THREE.MeshStandardMaterial({
+      color: 0x4499ff,
+      emissive: 0x0077ff,
+      emissiveIntensity: 8.0,
+      transparent: true,
+      opacity: 0.95,
+      roughness: 0.5,
+      metalness: 0.0
+    });
+
     const createZippoMesh = (): THREE.Group => {
       const zippoGroup = new THREE.Group();
       zippoGroup.name = 'zippoGroup';
@@ -796,39 +838,19 @@ export function Arena3D({
       copperStrand.rotation.z = 0.2;
       zippoGroup.add(copperStrand);
 
-      // 8. Dynamic 3D Flame System (Inner Blue Cone + Outer Warm Amber Cone + Light)
+      // 8. Dynamic 3D Flame System (Inner Blue Cone + Outer Warm Amber Cone)
       const flameGroup = new THREE.Group();
       flameGroup.name = 'zippoFlame';
       flameGroup.position.set(-0.01, 0.172, 0);
       flameGroup.visible = false;
 
-      const flameGeo = new THREE.ConeGeometry(0.018, 0.075, 12);
-      const flameMat = new THREE.MeshStandardMaterial({
-        color: 0xffa500,
-        emissive: 0xff5500,
-        emissiveIntensity: 5.5,
-        transparent: true,
-        opacity: 0.92
-      });
-      const flameMesh = new THREE.Mesh(flameGeo, flameMat);
+      const flameMesh = new THREE.Mesh(sharedFlameGeo, sharedFlameMat);
       flameMesh.position.y = 0.0375;
       flameGroup.add(flameMesh);
 
-      const innerFlameGeo = new THREE.ConeGeometry(0.008, 0.035, 10);
-      const innerFlameMat = new THREE.MeshStandardMaterial({
-        color: 0x4499ff,
-        emissive: 0x0077ff,
-        emissiveIntensity: 8.0,
-        transparent: true,
-        opacity: 0.95
-      });
-      const innerFlameMesh = new THREE.Mesh(innerFlameGeo, innerFlameMat);
+      const innerFlameMesh = new THREE.Mesh(sharedInnerFlameGeo, sharedInnerFlameMat);
       innerFlameMesh.position.y = 0.0175;
       flameGroup.add(innerFlameMesh);
-
-      const flameLight = new THREE.PointLight(0xffa500, 2.5, 2.0);
-      flameLight.position.y = 0.0375;
-      flameGroup.add(flameLight);
 
       zippoGroup.add(flameGroup);
 
@@ -1374,8 +1396,10 @@ export function Arena3D({
         const forceWebGL = ctrlSettings.useWebGPU === false;
 
         const check = await isWebGPUSupported();
-        if (!check.supported || forceWebGL) {
-          console.warn(`WebGPU is unsupported or disabled by settings. Falling back to WebGL.`);
+        if (forceWebGL) {
+          console.info(`Render engine set to WebGL by user settings.`);
+        } else if (!check.supported) {
+          console.warn(`WebGPU is unsupported (${check.reason || 'no hardware adapter'}). Falling back to WebGL.`);
         }
 
         const r = await createWebGPURenderer(canvas, forceWebGL);
@@ -1450,6 +1474,23 @@ export function Arena3D({
     // --- LIGHTS ---
     const ambientLight = new THREE.AmbientLight(0xffedd8, 0.65); // Warm soft ambient fill
     scene.add(ambientLight);
+    
+    // Dedicated Zippo lighter flame light (persistent in scene with intensity 0 to eliminate lighting recompilation & shadow cubemap spikes)
+    const zippoFlameLight = new THREE.PointLight(0xffa500, 0, 2.0);
+    zippoFlameLight.name = "zippoFlameLight";
+    zippoFlameLight.userData = { noShadow: true };
+    zippoFlameLight.castShadow = false;
+    zippoFlameLight.position.set(0, -100, 0);
+    scene.add(zippoFlameLight);
+
+    // Pre-warm flame materials upfront during scene init so the GPU pipelines compile before gameplay
+    const flamePrewarmGroup = new THREE.Group();
+    flamePrewarmGroup.name = "flamePrewarmGroup";
+    flamePrewarmGroup.position.set(0, -100, 0);
+    flamePrewarmGroup.scale.set(0.0001, 0.0001, 0.0001);
+    flamePrewarmGroup.add(new THREE.Mesh(sharedFlameGeo, sharedFlameMat));
+    flamePrewarmGroup.add(new THREE.Mesh(sharedInnerFlameGeo, sharedInnerFlameMat));
+    scene.add(flamePrewarmGroup);
     
     // Fill light to prevent pitch black areas
     const fillLight = new THREE.HemisphereLight(0x55556a, 0x1a1515, 0.75);
@@ -2113,75 +2154,214 @@ export function Arena3D({
     guardMesh.position.set(0, -0.05, -0.1);
     gunGroup.add(guardMesh);
 
-    // --- DEALER EXECUTION SHOTGUN (surrender finale, same PBR language as revolver) ---
+
+    // --- HYPER-REALISTIC 12-GAUGE TACTICAL PUMP SHOTGUN MODEL (DEALER SURRENDER SEQUENCE) ---
     const shotgunGroup = new THREE.Group();
-    shotgunGroup.name = 'dealerExecutionShotgun';
+    shotgunGroup.name = 'dealerShotgunGroup';
     shotgunGroup.visible = false;
-    shotgunGroup.position.set(0, 1.2, -2.2);
     scene.add(shotgunGroup);
+    animRef.current.shotgunGroup = shotgunGroup;
 
-    const shotgunReceiverGeo = new THREE.BoxGeometry(0.16, 0.22, 0.7);
-    const shotgunReceiver = new THREE.Mesh(shotgunReceiverGeo, gunMetalMat);
-    shotgunReceiver.position.set(0, 0, -0.25);
-    shotgunReceiver.castShadow = true;
-    shotgunReceiver.receiveShadow = true;
-    shotgunGroup.add(shotgunReceiver);
+    // Premium materials for hyper-realistic shotgun shading
+    const shotgunSteelMat = new THREE.MeshStandardMaterial({
+      color: 0x16181b,
+      roughness: 0.32,
+      metalness: 0.94,
+      envMapIntensity: 1.2,
+    });
+    const shotgunPolishedMat = new THREE.MeshStandardMaterial({
+      color: 0xbac2c8,
+      roughness: 0.15,
+      metalness: 0.98,
+    });
+    const shotgunWalnutMat = new THREE.MeshStandardMaterial({
+      color: 0x241208,
+      roughness: 0.62,
+      metalness: 0.04,
+    });
+    const shotgunBrassMat = new THREE.MeshStandardMaterial({
+      color: 0xd4af37,
+      roughness: 0.25,
+      metalness: 0.92,
+    });
+    const shotgunHullRedMat = new THREE.MeshStandardMaterial({
+      color: 0x990000,
+      roughness: 0.38,
+      metalness: 0.12,
+    });
+    const shotgunBoreMat = new THREE.MeshBasicMaterial({ color: 0x040404 });
+    const shotgunPadMat = new THREE.MeshStandardMaterial({
+      color: 0x0f0f10,
+      roughness: 0.85,
+      metalness: 0.1,
+    });
 
-    const shotgunBarrelGeo = new THREE.CylinderGeometry(0.075, 0.075, 1.15, barrelSegments);
-    shotgunBarrelGeo.rotateX(Math.PI / 2);
-    const shotgunBarrel = new THREE.Mesh(shotgunBarrelGeo, gunMetalMat);
-    shotgunBarrel.position.set(0, 0.06, 0.62);
-    shotgunBarrel.castShadow = true;
-    shotgunGroup.add(shotgunBarrel);
+    // 1. Receiver Chassis (Central Frame)
+    const sgReceiverGeo = new THREE.BoxGeometry(0.13, 0.22, 0.68);
+    const sgReceiverMesh = new THREE.Mesh(sgReceiverGeo, shotgunSteelMat);
+    sgReceiverMesh.position.set(0, 0.10, 0);
+    sgReceiverMesh.castShadow = true;
+    sgReceiverMesh.receiveShadow = true;
+    shotgunGroup.add(sgReceiverMesh);
 
-    const shotgunBoreGeo = new THREE.CylinderGeometry(0.055, 0.055, 0.14, 16);
-    shotgunBoreGeo.rotateX(Math.PI / 2);
-    const shotgunBore = new THREE.Mesh(shotgunBoreGeo, darkLinerMat);
-    shotgunBore.position.set(0, 0.06, 1.18);
-    shotgunGroup.add(shotgunBore);
+    // Chamfered top spine rail
+    const sgTopSpineGeo = new THREE.BoxGeometry(0.09, 0.045, 0.66);
+    const sgTopSpineMesh = new THREE.Mesh(sgTopSpineGeo, shotgunSteelMat);
+    sgTopSpineMesh.position.set(0, 0.22, 0);
+    shotgunGroup.add(sgTopSpineMesh);
 
-    const shotgunMuzzleRingGeo = new THREE.TorusGeometry(0.075, 0.014, 8, 24);
-    const shotgunMuzzleRing = new THREE.Mesh(shotgunMuzzleRingGeo, polishedSteelMat);
-    shotgunMuzzleRing.position.set(0, 0.06, 1.19);
-    shotgunGroup.add(shotgunMuzzleRing);
+    // Ejection port chamber window on right side
+    const sgPortGeo = new THREE.BoxGeometry(0.02, 0.085, 0.20);
+    const sgPortMesh = new THREE.Mesh(sgPortGeo, shotgunBoreMat);
+    sgPortMesh.position.set(0.066, 0.12, 0.02);
+    shotgunGroup.add(sgPortMesh);
 
-    const shotgunTubeGeo = new THREE.CylinderGeometry(0.055, 0.055, 0.95, 16);
-    shotgunTubeGeo.rotateX(Math.PI / 2);
-    const shotgunTube = new THREE.Mesh(shotgunTubeGeo, polishedSteelMat);
-    shotgunTube.position.set(0, -0.07, 0.5);
-    shotgunGroup.add(shotgunTube);
+    // Polished steel bolt inside ejection port
+    const sgBoltGeo = new THREE.BoxGeometry(0.03, 0.075, 0.16);
+    const sgBoltMesh = new THREE.Mesh(sgBoltGeo, shotgunPolishedMat);
+    sgBoltMesh.position.set(0.052, 0.12, 0.03);
+    shotgunGroup.add(sgBoltMesh);
 
-    const shotgunPumpGeo = new THREE.BoxGeometry(0.17, 0.14, 0.42);
-    const shotgunPump = new THREE.Mesh(shotgunPumpGeo, stockMat);
-    shotgunPump.position.set(0, -0.07, 0.55);
-    shotgunPump.castShadow = true;
-    shotgunGroup.add(shotgunPump);
+    // Chambered 12-gauge live shotgun shell visible inside ejection port
+    const sgShellBrassGeo = new THREE.CylinderGeometry(0.03, 0.03, 0.04, 16);
+    sgShellBrassGeo.rotateX(Math.PI / 2);
+    const sgShellBrass = new THREE.Mesh(sgShellBrassGeo, shotgunBrassMat);
+    sgShellBrass.position.set(0.052, 0.12, -0.035);
+    shotgunGroup.add(sgShellBrass);
 
-    const shotgunStockGeo = new THREE.BoxGeometry(0.15, 0.32, 0.55);
-    const shotgunStock = new THREE.Mesh(shotgunStockGeo, stockMat);
-    shotgunStock.position.set(0, -0.12, -0.78);
-    shotgunStock.rotation.x = 0.18;
-    shotgunStock.castShadow = true;
-    shotgunGroup.add(shotgunStock);
+    const sgShellHullGeo = new THREE.CylinderGeometry(0.029, 0.029, 0.11, 16);
+    sgShellHullGeo.rotateX(Math.PI / 2);
+    const sgShellHull = new THREE.Mesh(sgShellHullGeo, shotgunHullRedMat);
+    sgShellHull.position.set(0.052, 0.12, 0.04);
+    shotgunGroup.add(sgShellHull);
 
-    const shotgunBeadGeo = new THREE.SphereGeometry(0.02, 10, 10);
-    const shotgunBead = new THREE.Mesh(shotgunBeadGeo, brassAccentMat);
-    shotgunBead.position.set(0, 0.16, 1.05);
-    shotgunGroup.add(shotgunBead);
+    // Trigger guard and curved steel trigger
+    const sgGuardGeo = new THREE.TorusGeometry(0.07, 0.016, torusSegments, torusSegments * 2, Math.PI);
+    sgGuardGeo.rotateY(Math.PI / 2);
+    const sgGuardMesh = new THREE.Mesh(sgGuardGeo, shotgunSteelMat);
+    sgGuardMesh.position.set(0, -0.05, -0.15);
+    shotgunGroup.add(sgGuardMesh);
 
-    const shotgunSideSaddleGeo = new THREE.BoxGeometry(0.02, 0.12, 0.5);
-    const shotgunShellMat = new THREE.MeshStandardMaterial({ color: 0xa31212, roughness: 0.35, metalness: 0.2 });
-    for (let si = 0; si < 4; si++) {
-      const shell = new THREE.Mesh(new THREE.CylinderGeometry(0.032, 0.032, 0.11, 12).rotateZ(Math.PI / 2), shotgunShellMat);
-      shell.position.set(0.095, 0.02 + (si % 2) * 0.09, -0.35 + Math.floor(si / 2) * 0.22);
-      shotgunGroup.add(shell);
+    const sgTriggerGeo = new THREE.TorusGeometry(0.045, 0.012, 6, 12, Math.PI / 2);
+    sgTriggerGeo.rotateY(Math.PI / 2);
+    const sgTriggerMesh = new THREE.Mesh(sgTriggerGeo, shotgunPolishedMat);
+    sgTriggerMesh.position.set(0, -0.03, -0.13);
+    shotgunGroup.add(sgTriggerMesh);
+
+    // Crossbolt safety button and receiver pins
+    const sgSafetyGeo = new THREE.CylinderGeometry(0.018, 0.018, 0.14, 12);
+    sgSafetyGeo.rotateZ(Math.PI / 2);
+    const sgSafetyMesh = new THREE.Mesh(sgSafetyGeo, shotgunBrassMat);
+    sgSafetyMesh.position.set(0, 0.03, -0.20);
+    shotgunGroup.add(sgSafetyMesh);
+
+    // 2. Heavy 12-Gauge Blued Barrel (length ~1.15m from z = 0.34 to z = 1.49)
+    const sgBarrelGeo = new THREE.CylinderGeometry(0.048, 0.046, 1.15, barrelSegments);
+    sgBarrelGeo.rotateX(Math.PI / 2);
+    const sgBarrelMesh = new THREE.Mesh(sgBarrelGeo, shotgunSteelMat);
+    sgBarrelMesh.position.set(0, 0.15, 0.915);
+    sgBarrelMesh.castShadow = true;
+    sgBarrelMesh.receiveShadow = true;
+    shotgunGroup.add(sgBarrelMesh);
+
+    // Inner hollow muzzle cavity (pitch dark bore)
+    const sgBoreGeo = new THREE.CylinderGeometry(0.038, 0.038, 0.10, 16);
+    sgBoreGeo.rotateX(Math.PI / 2);
+    const sgBoreMesh = new THREE.Mesh(sgBoreGeo, shotgunBoreMat);
+    sgBoreMesh.position.set(0, 0.15, 1.445);
+    shotgunGroup.add(sgBoreMesh);
+
+    // Muzzle crown choke ring
+    const sgCrownGeo = new THREE.RingGeometry(0.038, 0.049, 16);
+    const sgCrownMesh = new THREE.Mesh(sgCrownGeo, shotgunPolishedMat);
+    sgCrownMesh.position.set(0, 0.15, 1.491);
+    shotgunGroup.add(sgCrownMesh);
+
+    // Raised ventilated sighting rib atop barrel
+    const sgRibGeo = new THREE.BoxGeometry(0.02, 0.025, 1.13);
+    const sgRibMesh = new THREE.Mesh(sgRibGeo, shotgunSteelMat);
+    sgRibMesh.position.set(0, 0.205, 0.915);
+    shotgunGroup.add(sgRibMesh);
+
+    // Front brass bead sight
+    const sgBeadGeo = new THREE.SphereGeometry(0.012, 8, 8);
+    const sgBeadMesh = new THREE.Mesh(sgBeadGeo, shotgunBrassMat);
+    sgBeadMesh.position.set(0, 0.228, 1.46);
+    shotgunGroup.add(sgBeadMesh);
+
+    // 3. Under-Barrel Tubular Magazine
+    const sgMagGeo = new THREE.CylinderGeometry(0.036, 0.036, 1.02, barrelSegments);
+    sgMagGeo.rotateX(Math.PI / 2);
+    const sgMagMesh = new THREE.Mesh(sgMagGeo, shotgunSteelMat);
+    sgMagMesh.position.set(0, 0.05, 0.85);
+    sgMagMesh.castShadow = true;
+    shotgunGroup.add(sgMagMesh);
+
+    // Knurled magazine end cap
+    const sgMagCapGeo = new THREE.CylinderGeometry(0.040, 0.040, 0.06, 16);
+    sgMagCapGeo.rotateX(Math.PI / 2);
+    const sgMagCapMesh = new THREE.Mesh(sgMagCapGeo, shotgunSteelMat);
+    sgMagCapMesh.position.set(0, 0.05, 1.36);
+    shotgunGroup.add(sgMagCapMesh);
+
+    // Dual-loop steel barrel clamp coupling barrel and magazine
+    const sgClampGeo = new THREE.BoxGeometry(0.072, 0.14, 0.04);
+    const sgClampMesh = new THREE.Mesh(sgClampGeo, shotgunPolishedMat);
+    sgClampMesh.position.set(0, 0.10, 1.30);
+    shotgunGroup.add(sgClampMesh);
+
+    // 4. Sliding Pump Fore-End Assembly (racks smoothly back and forth)
+    const shotgunPumpGroup = new THREE.Group();
+    shotgunPumpGroup.name = 'shotgunPumpGroup';
+    shotgunGroup.add(shotgunPumpGroup);
+    animRef.current.shotgunPumpGroup = shotgunPumpGroup;
+
+    // Ribbed Walnut fore-end grip slide
+    const sgPumpWoodGeo = new THREE.CylinderGeometry(0.056, 0.056, 0.38, barrelSegments);
+    sgPumpWoodGeo.rotateX(Math.PI / 2);
+    const sgPumpWoodMesh = new THREE.Mesh(sgPumpWoodGeo, shotgunWalnutMat);
+    sgPumpWoodMesh.position.set(0, 0.05, 0.70);
+    sgPumpWoodMesh.castShadow = true;
+    shotgunPumpGroup.add(sgPumpWoodMesh);
+
+    // Tactile circumferential grip rings around pump
+    for (let r = 0; r < 6; r++) {
+      const ringGeo = new THREE.TorusGeometry(0.058, 0.005, 6, 16);
+      const ringMesh = new THREE.Mesh(ringGeo, shotgunSteelMat);
+      ringMesh.position.set(0, 0.05, 0.56 + r * 0.055);
+      shotgunPumpGroup.add(ringMesh);
     }
-    const shotgunSaddle = new THREE.Mesh(shotgunSideSaddleGeo, darkLinerMat);
-    shotgunSaddle.position.set(0.085, 0.06, -0.24);
-    shotgunGroup.add(shotgunSaddle);
 
+    // Dual polished steel action bars linking pump into receiver
+    const sgBarGeo = new THREE.BoxGeometry(0.014, 0.02, 0.40);
+    const sgBarL = new THREE.Mesh(sgBarGeo, shotgunPolishedMat);
+    sgBarL.position.set(0.055, 0.07, 0.46);
+    shotgunPumpGroup.add(sgBarL);
 
-    // --- THE IMMERSIVE PHYSICAL TV (VITAL SIGNAL MONITORS) ---
+    const sgBarR = new THREE.Mesh(sgBarGeo, shotgunPolishedMat);
+    sgBarR.position.set(-0.055, 0.07, 0.46);
+    shotgunPumpGroup.add(sgBarR);
+
+    // 5. Tactical Contoured Walnut Buttstock & Grip
+    const sgGripGeo = new THREE.BoxGeometry(0.10, 0.32, 0.30);
+    const sgGripMesh = new THREE.Mesh(sgGripGeo, shotgunWalnutMat);
+    sgGripMesh.position.set(0, -0.14, -0.42);
+    sgGripMesh.rotation.x = -0.38;
+    sgGripMesh.castShadow = true;
+    shotgunGroup.add(sgGripMesh);
+
+    // Main walnut buttstock extending backward
+    const sgStockGeo = new THREE.BoxGeometry(0.11, 0.36, 0.72);
+    const sgStockMesh = new THREE.Mesh(sgStockGeo, shotgunWalnutMat);
+    sgStockMesh.position.set(0, -0.10, -0.85);
+    sgStockMesh.castShadow = true;
+    shotgunGroup.add(sgStockMesh);
+
+    // Textured black rubber recoil pad at butt plate
+    const sgPadGeo = new THREE.BoxGeometry(0.12, 0.37, 0.06);
+    const sgPadMesh = new THREE.Mesh(sgPadGeo, shotgunPadMat);
+    sgPadMesh.position.set(0, -0.10, -1.22);
+    shotgunGroup.add(sgPadMesh);
     const tvGroup = new THREE.Group();
     tvGroup.position.set(2.4, 1.85, -2.5); // Placed perfectly to the right side of the dealer, fully visible
     tvGroup.rotation.set(0.08, -0.55, 0); // Leaned slightly down and rotated inwards to face the player/camera
@@ -3195,6 +3375,7 @@ export function Arena3D({
 
     // --- PHYSICS-DRIVEN ITEM DISCARD SYSTEM ---
     const discardItemPhysics = (itemObj: THREE.Group | null, user: 'player' | 'dealer' = 'player') => {
+      zippoFlameLight.intensity = 0;
       if (!itemObj) return;
       const isPlayer = user === 'player';
       
@@ -3251,6 +3432,7 @@ export function Arena3D({
       // Determine internal render scale from preset
       let scale = 0.67;
       switch (upscalingPreset) {
+        case 'native': scale = 1.0; break;
         case 'ultra_quality': scale = 0.88; break;
         case 'quality': scale = 0.77; break;
         case 'balanced': scale = 0.67; break;
@@ -3274,7 +3456,11 @@ export function Arena3D({
             if (currentPostprocessingNode && currentPostprocessingNode !== scenePass && typeof currentPostprocessingNode.dispose === 'function') {
               try { currentPostprocessingNode.dispose(); } catch (e) {}
             }
-            currentPostprocessingNode = fsr1(scenePass, rcasSharpness);
+            if (upscalingPreset === 'native') {
+              currentPostprocessingNode = scenePass;
+            } else {
+              currentPostprocessingNode = fsr1(scenePass, rcasSharpness);
+            }
             renderPipeline.outputNode = currentPostprocessingNode;
             renderPipeline.needsUpdate = true;
           } catch (e) {
@@ -3294,7 +3480,7 @@ export function Arena3D({
       scene.traverse((child) => {
          // Shadow maps on lights
          if (child instanceof THREE.SpotLight || child instanceof THREE.PointLight || child instanceof THREE.DirectionalLight) {
-           if (child.userData?.noShadow || child.name?.includes('shelf') || child.name?.includes('shopAmbient') || child.name?.includes('fill')) {
+           if (child.userData?.noShadow || child.name?.includes('shelf') || child.name?.includes('shopAmbient') || child.name?.includes('fill') || child.name?.includes('flame') || child.name?.includes('zippo')) {
              child.castShadow = false;
            } else {
              const enableShadow = (!isMobileDevice && graphics.shadowQuality !== 'low');
@@ -3452,6 +3638,7 @@ export function Arena3D({
     };
 
     const handleMouseUpRaw = (clientX: number, clientY: number) => {
+      if (stateRef.current.hasSurrendered || stateRef.current.gameState === 'SURRENDER') return;
       const target = getIntersectionTargetRaw(clientX, clientY);
       if (target) {
         if (target.userData.isPlayerItem && stateRef.current.showControls) {
@@ -3508,6 +3695,10 @@ export function Arena3D({
       const lowerKey = key.toLowerCase();
       const latest = stateRef.current;
 
+      if (latest.hasSurrendered || latest.gameState === 'SURRENDER') {
+        return;
+      }
+
       // 1. Market / Shop View Toggle
       if (lowerKey === 'q' || lowerKey === 'e' || lowerKey === 'b') {
         e.preventDefault();
@@ -3556,8 +3747,17 @@ export function Arena3D({
         }
       }
 
-      // 3. Direct Action Shortcuts: 'S' -> Shoot Self, 'D' -> Shoot Dealer
+      // 3. Direct Action Shortcuts: 'S' -> Shoot Self, 'D' -> Shoot Dealer, 'X' -> Surrender
       if (latest.showControls && !isLookingAtShopRef.current) {
+        if (lowerKey === 'x' || code === 'KeyX') {
+          if (isGrimCondition(latest.player.health, latest.player.maxHealth, latest.dealer.health, difficulty, latest.chambers)) {
+            e.preventDefault();
+            latest.surrender?.();
+            setHoveredInfo(null);
+            vibrateGamepad('click');
+            return;
+          }
+        }
         if (lowerKey === 's' || code === 'KeyS') {
           e.preventDefault();
           fireGun('player', 'player');
@@ -3565,16 +3765,9 @@ export function Arena3D({
           vibrateGamepad('click');
           return;
         }
-        if (lowerKey === 'd' || code === 'KeyD') {
+        if (lowerKey === 'd' || code === 'KeyD' || lowerKey === 'f') {
           e.preventDefault();
           fireGun('dealer', 'player');
-          setHoveredInfo(null);
-          vibrateGamepad('click');
-          return;
-        }
-        if ((lowerKey === 'f' || code === 'KeyF' || lowerKey === 'x' || code === 'KeyX') && latest.isSurrenderAvailable && surrender) {
-          e.preventDefault();
-          surrender();
           setHoveredInfo(null);
           vibrateGamepad('click');
           return;
@@ -3768,7 +3961,7 @@ export function Arena3D({
 
         const btnY = gp.buttons[3]?.pressed;
         if (btnY && !lastGamepadY) {
-           if (latest.player.health > 0 && latest.gameState === 'PLAYER_TURN') {
+           if (latest.player.health > 0 && latest.gameState === 'PLAYER_TURN' && !latest.hasSurrendered) {
              isLookingAtShopRef.current = !isLookingAtShopRef.current;
              isTargetingActive = false;
              hoveredMesh = null;
@@ -3794,16 +3987,6 @@ export function Arena3D({
            vibrateGamepad('click');
         }
         lastGamepadRT = !!btnRT;
-
-        const btnLBChord = gp.buttons[4]?.pressed;
-        const btnRBChord = gp.buttons[5]?.pressed;
-        const surrenderChord = !!btnLBChord && !!btnRBChord;
-        if (surrenderChord && !(ar as any).lastSurrenderChord && latest.showControls && latest.isSurrenderAvailable && surrender) {
-           surrender();
-           setHoveredInfo(null);
-           vibrateGamepad('click');
-        }
-        (ar as any).lastSurrenderChord = surrenderChord;
 
         if (virtualCursorActive) {
           if (cursorEl) cursorEl.style.display = 'flex';
@@ -4060,8 +4243,8 @@ export function Arena3D({
       shelfBottomLight.intensity = 12.0 * bMult;
       shelfTopLight.intensity = 12.0 * bMult;
 
-      // Force shop view off when player dies or during action / dealer turn
-      if (latest.player.health <= 0 || latest.gameState !== 'PLAYER_TURN') {
+      // Force shop view off when player dies or during action / dealer turn or surrender
+      if (latest.player.health <= 0 || latest.gameState !== 'PLAYER_TURN' || latest.hasSurrendered || latest.gameState === 'SURRENDER') {
         isLookingAtShopRef.current = false;
       }
 
@@ -4087,9 +4270,14 @@ export function Arena3D({
       stateRef.current.lookTargetVec.lerp(activeLookTarget, damp(lerpSpeed));
       stateRef.current.camPosVec.lerp(activeCamPos, damp(lerpSpeed));
 
-      // Check if the gun barrel needs to show as sawed-off (double damage)
+      // Check if the gun barrel needs to show as sawed-off (double damage active or active scalpel cut)
+      const isCuttingScalpel = !!(animRef.current.activeItemAnim && animRef.current.activeItemAnim.item === 'SCALPEL');
+      if (!latest.doubleDamageActive && !isCuttingScalpel) {
+        animRef.current.isSawedOff = false;
+        animRef.current.hasSpawnedSeveredBarrel = false;
+      }
+      const isSawedActive = !!latest.doubleDamageActive || (isCuttingScalpel && animRef.current.isSawedOff);
       if (animRef.current.gunBarrelFrontGroup) {
-        const isSawedActive = !!latest.doubleDamageActive || animRef.current.isSawedOff;
         animRef.current.gunBarrelFrontGroup.visible = !isSawedActive;
       }
 
@@ -4290,16 +4478,11 @@ export function Arena3D({
         // 4. Any completed empty self shot
         const emptyShotAtSelf = (ar.animShooter === 'player' && ar.animTarget === 'player' && isBlankOutcome);
 
-        // 5. Surrender execution: sadistic smirk while the player drops the gun
-        const isSurrenderExecution = !!latest.surrendered || !!latest.dealerSmirk || latest.executionWeapon === 'shotgun';
-
-        const shouldSmile = explicitSmile || tryingToShootSelf || emptyShotAtDealer || emptyShotAtSelf || playerIsDead || personality === 'ARROGANT' || latest.retaliationActive || isSurrenderExecution;
+        const shouldSmile = explicitSmile || tryingToShootSelf || emptyShotAtDealer || emptyShotAtSelf || playerIsDead || personality === 'ARROGANT' || latest.retaliationActive || latest.gameState === 'SURRENDER';
         
-        if (isSurrenderExecution) {
-          // Sadistic smirk overrides everything, including DESPERATE no-smile rule.
-          ar.dealerSmileFactor = ar.dealerSmileFactor * (1 - damp(0.25)) + 1.0 * damp(0.25);
-          ar.dealerHeadTiltFactor = Math.max(ar.dealerHeadTiltFactor, 0.65);
-          ar.dealerMouthOpenFactor = Math.max(ar.dealerMouthOpenFactor, 0.18);
+        if (latest.gameState === 'SURRENDER') {
+          ar.dealerSmileFactor = 1.6; // Cruel sadistic smirk
+          ar.dealerHeadTiltFactor = 0.35;
         } else if (personality === 'DESPERATE') {
           ar.dealerSmileFactor = 0.0; // Strictly NEVER smile in desperate mode
         } else if (shouldSmile) {
@@ -4349,7 +4532,12 @@ export function Arena3D({
         let targetBrowAngleR = 0.12;
         let targetBrowY = 2.82;
 
-        if (isShootDealerHovered && latest.showControls) {
+        if (latest.gameState === 'SURRENDER') {
+          // Sadistic mocking arched eyebrow
+          targetBrowAngleL = 0.46;
+          targetBrowAngleR = -0.26;
+          targetBrowY = 2.85;
+        } else if (isShootDealerHovered && latest.showControls) {
           // Threat/Flinch response: Angry, hostile V-furrowed brow
           targetBrowAngleL = -0.38;
           targetBrowAngleR = 0.38;
@@ -4590,7 +4778,138 @@ export function Arena3D({
 
 
       // --- GUN ANIMATION SYSTEM ---
-      if (latest.gameState === 'SHOOTING') {
+      if (latest.gameState === 'SURRENDER') {
+        if (ar.surrenderStartTime === 0) {
+          ar.surrenderStartTime = Date.now();
+          ar.hasPlayedSurrenderGunDrop = false;
+          ar.hasPlayedSurrenderSmirkSound = false;
+          ar.hasPlayedSurrenderPumpSound = false;
+          ar.hasPlayedSurrenderBlastSound = false;
+        }
+
+        const surrenderElapsed = (Date.now() - ar.surrenderStartTime) / 1000;
+
+        // 1. Player Drops the Revolver onto the wooden table (0s - 0.7s)
+        const dropT = Math.min(1.0, surrenderElapsed / 0.40);
+        const easeDrop = dropT * dropT; // accelerate down under gravity
+        gunGroup.position.x = 0;
+        gunGroup.position.y = 0.57 - easeDrop * 0.19; // drops from waist level (0.57) to tabletop (0.38)
+        gunGroup.position.z = -0.40 + easeDrop * 0.14; // slides forward slightly
+        gunGroup.rotation.x = 0.06 - easeDrop * 0.15;
+        gunGroup.rotation.y = Math.PI / 2 + 0.12 + easeDrop * 0.22;
+        gunGroup.rotation.z = Math.PI / 2 + easeDrop * 0.42; // clatters flat onto its side
+
+        if (surrenderElapsed >= 0.18 && !ar.hasPlayedSurrenderGunDrop) {
+          ar.hasPlayedSurrenderGunDrop = true;
+          playGunDropSound();
+          vibrateGamepad('click');
+          ar.cameraShakeIntensity = Math.max(ar.cameraShakeIntensity, 0.45);
+          spawnParticles(new THREE.Vector3(0, 0.40, -0.28), 0x999999, 18, 0.22, 0.001, 'SPARK');
+        }
+
+        // 2. Dealer draws the hyper-realistic Shotgun from beneath the counter & levels it (0.7s - 2.1s)
+        if (shotgunGroup) {
+          shotgunGroup.visible = true;
+
+          if (surrenderElapsed < 0.7) {
+            shotgunGroup.position.set(0, -0.65, -2.6);
+            shotgunGroup.rotation.set(0.65, 0, 0);
+          } else if (surrenderElapsed < 2.1) {
+            // Smoothly raise up to shoulder level
+            const drawT = (surrenderElapsed - 0.7) / 1.4;
+            const easeDraw = drawT < 0.5 ? 2 * drawT * drawT : -1 + (4 - 2 * drawT) * drawT;
+            shotgunGroup.position.x = 0;
+            shotgunGroup.position.y = -0.65 + easeDraw * 2.0; // raises to y = 1.35
+            shotgunGroup.position.z = -2.6 + easeDraw * 0.95; // moves forward to z = -1.65
+            shotgunGroup.rotation.x = 0.65 - easeDraw * 0.53; // levels to 0.12
+            shotgunGroup.rotation.y = 0;
+            shotgunGroup.rotation.z = 0;
+          } else if (surrenderElapsed < 4.2) {
+            // Pointed directly at player camera with terrifying presence
+            const breathSwayY = Math.sin(time * 1.8) * 0.006;
+            const breathSwayX = Math.cos(time * 1.2) * 0.004;
+            shotgunGroup.position.set(breathSwayX, 1.35 + breathSwayY, -1.65);
+            shotgunGroup.rotation.set(0.12, 0, 0);
+
+            // 3. Racking the pump slide (CH-CHIK!) (2.2s - 3.2s)
+            if (shotgunPumpGroup) {
+              if (surrenderElapsed >= 2.2 && surrenderElapsed <= 3.2) {
+                const pumpT = (surrenderElapsed - 2.2) / 0.85;
+                if (pumpT < 0.45) {
+                  // Rack backward
+                  const backEase = Math.sin((pumpT / 0.45) * (Math.PI / 2));
+                  shotgunPumpGroup.position.z = -backEase * 0.14;
+                } else if (pumpT < 0.55) {
+                  // Lock back momentarily
+                  shotgunPumpGroup.position.z = -0.14;
+                } else if (pumpT < 0.95) {
+                  // Slam forward into battery
+                  const fwdEase = Math.sin(((pumpT - 0.55) / 0.40) * (Math.PI / 2));
+                  shotgunPumpGroup.position.z = -0.14 + fwdEase * 0.14;
+                } else {
+                  shotgunPumpGroup.position.z = 0;
+                }
+              } else {
+                shotgunPumpGroup.position.z = 0;
+              }
+            }
+
+            if (surrenderElapsed >= 2.25 && !ar.hasPlayedSurrenderPumpSound) {
+              ar.hasPlayedSurrenderPumpSound = true;
+              playShotgunPumpSound();
+              vibrateGamepad('jolt', { duration: 85, weak: 0.2, strong: 0.9 });
+            }
+          } else {
+            // 4.2s: OBLITERATING 12-GAUGE BLAST & SHOTGUN RECOIL
+            if (!ar.hasPlayedSurrenderBlastSound) {
+              ar.hasPlayedSurrenderBlastSound = true;
+              playShotgunBlastSound();
+
+              // Violent camera concussion
+              ar.cameraKickZ = 1.35;
+              ar.cameraKickPitch = -0.85;
+              ar.cameraKickRoll = 0.45;
+              ar.cameraShakeIntensity = 9.0;
+
+              // Controller vibration
+              vibrateGamepad('jolt', { duration: 450, weak: 1.0, strong: 1.0 });
+
+              // Muzzle position in world
+              shotgunGroup.updateMatrixWorld(true);
+              const muzzlePos = new THREE.Vector3(0, 0.15, 1.49).applyMatrix4(shotgunGroup.matrixWorld);
+
+              // Sparks, smoke, and buckshot burst
+              spawnParticles(muzzlePos, 0xffaa00, 240, 0.85, 0.001, 'SPARK');
+              spawnParticles(muzzlePos, 0x444444, 140, 0.9, -0.002, 'SMOKE');
+              spawnParticles(muzzlePos, 0xcc9900, 16, 0.98, 0.0001, 'BULLET');
+
+              // Visceral blood burst towards player camera
+              spawnParticles(new THREE.Vector3(0, 1.45, 1.2), 0x220000, 480, 0.6, 0.004, 'BLOOD');
+              for (let i = 0; i < 4; i++) {
+                spawnScreenSplat();
+              }
+            }
+
+            // Heavy shotgun recoil kick backwards
+            const recoilAge = surrenderElapsed - 4.2;
+            if (recoilAge < 0.28) {
+              const rFactor = 1.0 - recoilAge / 0.28;
+              shotgunGroup.position.set(0, 1.35 + rFactor * 0.06, -1.65 - rFactor * 0.38);
+              shotgunGroup.rotation.set(0.12 - rFactor * 0.38, 0, 0);
+            } else {
+              shotgunGroup.position.set(0, 1.35, -1.65);
+              shotgunGroup.rotation.set(0.12, 0, 0);
+            }
+          }
+        }
+
+        // Dealer Sadistic Smirk and Laugh
+        ar.dealerSmileFactor = 1.6;
+        if (surrenderElapsed >= 0.95 && !ar.hasPlayedSurrenderSmirkSound) {
+          ar.hasPlayedSurrenderSmirkSound = true;
+          playDealerSadisticLaugh();
+        }
+      } else if (latest.gameState === 'SHOOTING') {
           if (ar.activeShootAnimationState === 'IDLE') {
           ar.activeShootAnimationState = 'RAISING';
           ar.activeShootStartTime = Date.now();
@@ -4599,43 +4918,12 @@ export function Arena3D({
 
           ar.animShooter = latest.shooter || 'player';
           ar.animTarget = latest.target || 'dealer';
-          const isShotgunInit = !!latest.surrendered || latest.executionWeapon === 'shotgun';
-          ar.animIsLive = isShotgunInit ? true : (latest.chambers[latest.currentChamberIndex]?.isLive || false);
+          ar.animIsLive = latest.chambers[latest.currentChamberIndex]?.isLive || false;
         }
 
         const elapsedMs = (Date.now() - ar.activeShootStartTime) * 1.25;
-        const isShotgunExecution = !!latest.surrendered || latest.executionWeapon === 'shotgun';
-        const droppedGunPos = new THREE.Vector3(0.9, 0.52, 0.7);
-        const droppedGunRot = new THREE.Euler(0.3, 1.1, 1.62);
-        const shotgunAimPos = new THREE.Vector3(0, 1.5, -1.6);
-        const shotgunAimRot = new THREE.Euler(0.32, 0, 0);
 
         if (elapsedMs < 1800) {
-          // --- SURRENDER EXECUTION: player drops revolver, dealer raises shotgun ---
-          if (isShotgunExecution) {
-            shotgunGroup.visible = true;
-            gunGroup.position.lerp(droppedGunPos, damp(0.14));
-            gunGroup.rotation.x = gunGroup.rotation.x * (1 - damp(0.14)) + droppedGunRot.x * damp(0.14);
-            gunGroup.rotation.y = gunGroup.rotation.y * (1 - damp(0.14)) + droppedGunRot.y * damp(0.14);
-            gunGroup.rotation.z = gunGroup.rotation.z * (1 - damp(0.14)) + droppedGunRot.z * damp(0.14);
-
-            shotgunGroup.position.lerp(shotgunAimPos, damp(0.12));
-            shotgunGroup.rotation.x = shotgunGroup.rotation.x * (1 - damp(0.12)) + shotgunAimRot.x * damp(0.12);
-            shotgunGroup.rotation.y = shotgunGroup.rotation.y * (1 - damp(0.12)) + shotgunAimRot.y * damp(0.12);
-            shotgunGroup.rotation.z = shotgunGroup.rotation.z * (1 - damp(0.12)) + shotgunAimRot.z * damp(0.12);
-
-            if (elapsedMs > 50 && !ar.hasCockingSoundPlayed) {
-              ar.hasCockingSoundPlayed = true;
-              import('../audio').then(a => a.playCockSound());
-            }
-            if (elapsedMs > 900) {
-              const tremblingIntensity = ((elapsedMs - 900) / 900) * 0.012;
-              shotgunGroup.position.x += (Math.random() - 0.5) * tremblingIntensity * deltaScale;
-              shotgunGroup.position.y += (Math.random() - 0.5) * tremblingIntensity * deltaScale;
-              ar.cameraShakeIntensity = ar.cameraShakeIntensity * (1 - damp(0.08)) + tremblingIntensity * 1.5;
-            }
-          } else {
-          shotgunGroup.visible = false;
           // --- RAISING & COCKING & AIMING PHASE ---
           const finalAimPos = new THREE.Vector3();
           const finalAimRot = new THREE.Euler();
@@ -4708,7 +4996,6 @@ export function Arena3D({
             // Camera subtle vibration tracking panic/heartbeats
             ar.cameraShakeIntensity = ar.cameraShakeIntensity * (1 - damp(0.08)) + tremblingIntensity * 1.5;
           }
-          }
 
           // Add dynamic, realistic nerve-wracking gamepad vibrations when aiming (only for player shooter)
           if (ar.animShooter === 'player') {
@@ -4751,17 +5038,15 @@ export function Arena3D({
               // Direct Visceral Camera Kickback
               if (ar.animTarget === 'player') {
                 // Player gets shot by Dealer or Self
-                const shotgunBoost = isShotgunExecution ? 1.6 : 1.0;
-                ar.cameraKickZ = 0.62 * shotgunBoost; // Violent backward jolt on camera
-                ar.cameraKickPitch = -0.38 * shotgunBoost; // Upward camera pitch kick
-                ar.cameraKickRoll = (Math.random() > 0.5 ? 0.22 : -0.22) * shotgunBoost; // Impact roll
-                ar.cameraShakeIntensity = isShotgunExecution ? 7.5 : 4.8;
+                ar.cameraKickZ = 0.62; // Violent backward jolt on camera
+                ar.cameraKickPitch = -0.38; // Upward camera pitch kick
+                ar.cameraKickRoll = (Math.random() > 0.5 ? 0.22 : -0.22); // Impact roll
+                ar.cameraShakeIntensity = 4.8;
 
                 spawnScreenSplat();
                 setTimeout(spawnScreenSplat, 100);
                 setTimeout(spawnScreenSplat, 250);
-                if (isShotgunExecution) setTimeout(spawnScreenSplat, 400);
-                vibrateGamepad('jolt', { duration: isShotgunExecution ? 500 : 250, weak: 1.0, strong: 1.0 });
+                vibrateGamepad('jolt', { duration: 250, weak: 1.0, strong: 1.0 });
               } else {
                 // Player shoots Dealer or Dealer shoots self
                 ar.cameraKickZ = 0.32; // Firing heavy gun kickback
@@ -4783,27 +5068,24 @@ export function Arena3D({
 
               const isSawed = !!latest.doubleDamageActive || ar.isSawedOff;
               const muzzleZ = isSawed ? 0.38 : 0.9;
-              const muzzleSource = isShotgunExecution ? shotgunGroup : gunGroup;
-              const muzzleWorldPos = isShotgunExecution
-                ? new THREE.Vector3(0, 0.06, 1.25).applyMatrix4(shotgunGroup.matrixWorld)
-                : new THREE.Vector3(0, 0.18, muzzleZ).applyMatrix4(gunGroup.matrixWorld);
-              const chamberWorldPos = new THREE.Vector3(0.12, 0.12, -0.15).applyMatrix4(muzzleSource.matrixWorld);
+              const muzzleWorldPos = new THREE.Vector3(0, 0.18, muzzleZ).applyMatrix4(gunGroup.matrixWorld);
+              const chamberWorldPos = new THREE.Vector3(0.12, 0.12, -0.15).applyMatrix4(gunGroup.matrixWorld);
 
               // 1. Real bullet projectile trajectory + ejected spent brass casing
-              spawnParticles(muzzleWorldPos, 0xcc9900, isShotgunExecution ? 6 : 1, 0.85, 0.0001, 'BULLET');
-              spawnParticles(chamberWorldPos, 0xd4af37, isShotgunExecution ? 4 : 1, 0.16, 0.0038, 'SHELL');
+              spawnParticles(muzzleWorldPos, 0xcc9900, 1, 0.85, 0.0001, 'BULLET');
+              spawnParticles(chamberWorldPos, 0xd4af37, 1, 0.16, 0.0038, 'SHELL');
 
               // 2. Muzzle spark flash & heavy barrel smoke (amplified if sawed off double damage)
-              spawnParticles(muzzleWorldPos, 0xffaa00, isShotgunExecution ? 220 : (isSawed ? 130 : 85), 0.55, 0.001, 'SPARK'); 
-              spawnParticles(muzzleWorldPos, 0xaaaaaa, isShotgunExecution ? 160 : (isSawed ? 90 : 65), 0.7, -0.0018, 'SMOKE');
+              spawnParticles(muzzleWorldPos, 0xffaa00, isSawed ? 130 : 85, 0.55, 0.001, 'SPARK'); 
+              spawnParticles(muzzleWorldPos, 0xaaaaaa, isSawed ? 90 : 65, 0.7, -0.0018, 'SMOKE');
 
               // 3. MASSIVE PROCEDURAL BLOOD SPLATTER BURST FROM TARGET IMPACT POINT
               // Blasts directly down and outward onto table surface, items, and surrounding floor
-              spawnParticles(targetImpactPos, 0x2a0000, isShotgunExecution ? 650 : 380, 0.45, 0.004, 'BLOOD');
+              spawnParticles(targetImpactPos, 0x2a0000, 380, 0.45, 0.004, 'BLOOD');
               
               const midPoint = targetImpactPos.clone().add(muzzleWorldPos).multiplyScalar(0.5);
-              spawnParticles(midPoint, 0x2a0000, isShotgunExecution ? 380 : 220, 0.35, 0.004, 'BLOOD');
-              spawnParticles(muzzleWorldPos, 0x2a0000, isShotgunExecution ? 260 : 150, 0.28, 0.004, 'BLOOD');
+              spawnParticles(midPoint, 0x2a0000, 220, 0.35, 0.004, 'BLOOD');
+              spawnParticles(muzzleWorldPos, 0x2a0000, 150, 0.28, 0.004, 'BLOOD');
             } else {
               // Dry blank click -> extremely subtle mechanical click feedback
               ar.lastFireIsLive = false;
@@ -4819,22 +5101,7 @@ export function Arena3D({
           // --- RECOIL SETTLE AND RETURNING HOME ---
           const recoilAge = Math.max(0, elapsedMs - 1800);
 
-          if (isShotgunExecution) {
-            // Shotgun stays trained on the player; revolver stays dropped.
-            gunGroup.position.lerp(droppedGunPos, damp(0.2));
-            gunGroup.rotation.x = gunGroup.rotation.x * (1 - damp(0.2)) + droppedGunRot.x * damp(0.2);
-            gunGroup.rotation.y = gunGroup.rotation.y * (1 - damp(0.2)) + droppedGunRot.y * damp(0.2);
-            gunGroup.rotation.z = gunGroup.rotation.z * (1 - damp(0.2)) + droppedGunRot.z * damp(0.2);
-            shotgunGroup.position.lerp(shotgunAimPos, damp(0.25));
-            shotgunGroup.rotation.x = shotgunGroup.rotation.x * (1 - damp(0.25)) + shotgunAimRot.x * damp(0.25);
-            if (ar.lastFireIsLive && recoilAge < 500) {
-              const kickForce = recoilAge <= 50
-                ? Math.sin((recoilAge / 50) * (Math.PI / 2))
-                : Math.pow(1.0 - ((recoilAge - 50) / 450), 3);
-              shotgunGroup.position.z += 0.45 * kickForce;
-              shotgunGroup.rotation.x -= 0.55 * kickForce;
-            }
-          } else if (recoilAge < 500) {
+          if (recoilAge < 500) {
             // Settle holding post-fire phase
             const settlePos = new THREE.Vector3();
             let settleRotX = 0;
@@ -4914,33 +5181,37 @@ export function Arena3D({
         ar.activeShootAnimationState = 'IDLE';
         ar.activeShootStartTime = 0;
         ar.hasDischarged = false;
+
+        // Reset surrender cinematic state if leaving surrender
+        if (ar.surrenderStartTime !== 0) {
+          ar.surrenderStartTime = 0;
+          ar.hasPlayedSurrenderGunDrop = false;
+          ar.hasPlayedSurrenderSmirkSound = false;
+          ar.hasPlayedSurrenderPumpSound = false;
+          ar.hasPlayedSurrenderBlastSound = false;
+          if (shotgunGroup) shotgunGroup.visible = false;
+          if (shotgunPumpGroup) shotgunPumpGroup.position.z = 0;
+        }
         
         // Ensure hammer is resting
         hammerMesh.rotation.x = -0.15;
 
         // Maintain barrel visibility based on sawed-off / double damage state
+        const isCuttingScalpelResting = !!(ar.activeItemAnim && ar.activeItemAnim.item === 'SCALPEL');
+        if (!latest.doubleDamageActive && !isCuttingScalpelResting) {
+          ar.isSawedOff = false;
+          ar.hasSpawnedSeveredBarrel = false;
+        }
+        const isSawedActiveResting = !!latest.doubleDamageActive || (isCuttingScalpelResting && ar.isSawedOff);
         if (ar.gunBarrelFrontGroup) {
-          const isSawedActive = !!latest.doubleDamageActive || ar.isSawedOff;
-          ar.gunBarrelFrontGroup.visible = !isSawedActive;
+          ar.gunBarrelFrontGroup.visible = !isSawedActiveResting;
         }
 
-        const isSurrenderTableau = !!latest.surrendered || latest.executionWeapon === 'shotgun';
-        if (isSurrenderTableau) {
-          // Preserve finale tableau: revolver dropped, shotgun in dealer hands.
-          shotgunGroup.visible = true;
-          gunGroup.position.lerp(new THREE.Vector3(0.9, 0.52, 0.7), damp(0.16));
-          gunGroup.rotation.x = gunGroup.rotation.x * (1 - damp(0.16)) + 0.3 * damp(0.16);
-          gunGroup.rotation.y = gunGroup.rotation.y * (1 - damp(0.16)) + 1.1 * damp(0.16);
-          gunGroup.rotation.z = gunGroup.rotation.z * (1 - damp(0.16)) + 1.62 * damp(0.16);
-          shotgunGroup.position.lerp(new THREE.Vector3(0, 1.5, -1.6), damp(0.16));
-        } else {
-          shotgunGroup.visible = false;
-          // Perfectly flat wooden table top resting sways/coordinates
-          gunGroup.position.lerp(initialGunPos, damp(0.16));
-          gunGroup.rotation.x = gunGroup.rotation.x * (1 - damp(0.16)) + initialGunRot.x * damp(0.16);
-          gunGroup.rotation.y = gunGroup.rotation.y * (1 - damp(0.16)) + initialGunRot.y * damp(0.16);
-          gunGroup.rotation.z = gunGroup.rotation.z * (1 - damp(0.16)) + initialGunRot.z * damp(0.16);
-        }
+        // Perfectly flat wooden table top resting sways/coordinates
+        gunGroup.position.lerp(initialGunPos, damp(0.16));
+        gunGroup.rotation.x = gunGroup.rotation.x * (1 - damp(0.16)) + initialGunRot.x * damp(0.16);
+        gunGroup.rotation.y = gunGroup.rotation.y * (1 - damp(0.16)) + initialGunRot.y * damp(0.16);
+        gunGroup.rotation.z = gunGroup.rotation.z * (1 - damp(0.16)) + initialGunRot.z * damp(0.16);
       }
 
 
@@ -5105,6 +5376,7 @@ export function Arena3D({
         }
         ar.activeItemAnimType = null;
         ar.activeItemAnimStartTime = 0;
+        zippoFlameLight.intensity = 0;
       }
 
       // Anim loop calculations for used item
@@ -5597,19 +5869,21 @@ export function Arena3D({
 
                 if (!ar.hasLitCigarette) {
                   ar.hasLitCigarette = true;
-                  import('../audio').then(a => a.playCigaretteLighting());
+                  playCigaretteLighting();
                   vibrateGamepad(isPlayerUser ? 'weak' : 'weak', { duration: 180, weak: 0.4, strong: 0.2 });
-                }
-
-                if (zippoFlame) {
-                  zippoFlame.visible = true;
-                  const flicker = 0.85 + Math.sin(elapsedSec * 45.0) * 0.2 + Math.cos(elapsedSec * 28.0) * 0.1;
-                  zippoFlame.scale.set(flicker, flicker * (1 + Math.sin(elapsedSec * 35.0) * 0.15), flicker);
                 }
 
                 const lighterTipPos = lipsPos.clone();
                 lighterTipPos.x += (isPlayerUser ? 0.06 : -0.06);
                 lighterTipPos.y -= (isPlayerUser ? 0.04 : -0.04);
+
+                if (zippoFlame) {
+                  zippoFlame.visible = true;
+                  const flicker = 0.85 + Math.sin(elapsedSec * 45.0) * 0.2 + Math.cos(elapsedSec * 28.0) * 0.1;
+                  zippoFlame.scale.set(flicker, flicker * (1 + Math.sin(elapsedSec * 35.0) * 0.15), flicker);
+                  zippoFlameLight.position.copy(lighterTipPos);
+                  zippoFlameLight.intensity = 2.5 * flicker;
+                }
 
                 // Initial spark burst on flint wheel strike
                 if (phase2T < 0.65 && Math.random() < 0.85) {
@@ -5636,6 +5910,7 @@ export function Arena3D({
 
                 if (zippoCap) zippoCap.rotation.z = 0;
                 if (zippoFlame) zippoFlame.visible = false;
+                zippoFlameLight.intensity = 0;
 
                 const startY = -0.05;
                 const endY = -0.6;
@@ -5652,6 +5927,7 @@ export function Arena3D({
             } else if (elapsedSec < 2.5) {
               // Phase 3: Deep Inhale Drag on Cigarette
               zippoGroup.visible = false;
+              zippoFlameLight.intensity = 0;
 
               ar.activeItemAnimGroup.position.copy(lipsPos);
 
@@ -5686,6 +5962,7 @@ export function Arena3D({
             } else if (elapsedSec < 3.2) {
               // Phase 4: Lower Cigarette & Exhale Dense Volumetric Smoke Plume
               zippoGroup.visible = false;
+              zippoFlameLight.intensity = 0;
 
               const exhaleT = (elapsedSec - 2.5) / 0.7;
               
@@ -5702,7 +5979,7 @@ export function Arena3D({
 
               if (!ar.hasExhaledSmoke) {
                 ar.hasExhaledSmoke = true;
-                import('../audio').then(a => a.playSmokeExhale());
+                playSmokeExhale();
               }
 
               // Soft, translucent smoke cloud billows out gracefully from mouth
@@ -5715,6 +5992,7 @@ export function Arena3D({
             } else {
               discardItemPhysics(ar.activeItemAnimGroup, ar.activeItemAnimUser || 'player');
               ar.activeItemAnimGroup = null;
+              zippoFlameLight.intensity = 0;
             }
             break;
           }
@@ -6366,7 +6644,7 @@ export function Arena3D({
       let activeTargetName = '';
       let activeTargetDesc = '';
 
-      if (latest.showControls || isLookingAtShopRef.current) {
+      if ((latest.showControls || isLookingAtShopRef.current) && !latest.hasSurrendered && latest.gameState !== 'SURRENDER') {
         if (hoveredMesh) {
           activeTargetMesh = hoveredMesh;
           const isTouchMode = stateRef.current.isTouchActive;
@@ -6441,6 +6719,11 @@ export function Arena3D({
           popupEl.style.opacity = '1';
           popupEl.style.visibility = 'visible';
         } else {
+          popupEl.style.opacity = '0';
+          popupEl.style.visibility = 'hidden';
+        }
+      } else {
+        if (popupEl) {
           popupEl.style.opacity = '0';
           popupEl.style.visibility = 'hidden';
         }
@@ -7147,7 +7430,7 @@ export function Arena3D({
         try { renderer.dispose(); } catch (e) {}
       }
     };
-  }, []);
+  }, [pipelineEngine]);
 
   return (
     <div
@@ -7155,6 +7438,7 @@ export function Arena3D({
       className="w-full h-full bg-black overflow-hidden relative flex justify-center items-center select-none"
     >
       <canvas
+        key={pipelineEngine}
         ref={canvasRef}
         className="block"
         style={{
@@ -7253,7 +7537,7 @@ export function Arena3D({
       </div>
 
       {/* SHOP PROMPT */}
-      {player.health > 0 && gameState === 'PLAYER_TURN' && (
+      {player.health > 0 && gameState === 'PLAYER_TURN' && !hasSurrendered && (
         <motion.div 
           className="absolute left-8 top-1/2 -translate-y-1/2 z-[120] flex flex-col items-start gap-2"
           initial={{ opacity: 0, x: -20 }}
@@ -7266,7 +7550,7 @@ export function Arena3D({
              className="group relative flex items-center gap-3 text-[10px] md:text-sm uppercase font-mono text-amber-500 frosted-glass-ui backdrop-blur-md px-4 py-3 border-l-4 border-l-amber-600 rounded-r drop-shadow-lg cursor-pointer pointer-events-auto active:scale-95 transition-transform"
              onClick={() => {
 
-                if (player.health <= 0 || gameState !== 'PLAYER_TURN') return;
+                if (player.health <= 0 || gameState !== 'PLAYER_TURN' || hasSurrendered) return;
                 isLookingAtShopRef.current = !isLookingAtShopRef.current;
                 setHoveredInfo(null);
                 setDebugToggle(p => p + 1);
@@ -7298,13 +7582,13 @@ export function Arena3D({
       )}
 
       {/* EDGE SHOOT DETECTION ZONES */}
-      {player.health > 0 && gameState === 'PLAYER_TURN' && showControls && !isLookingAtShopRef.current && (
+      {player.health > 0 && gameState === 'PLAYER_TURN' && showControls && !isLookingAtShopRef.current && !hasSurrendered && (
         <>
           {/* Top Edge: Shoot Dealer */}
           <div 
             className="absolute top-0 left-0 right-0 h-[25vh] md:h-[30vh] z-[115] flex justify-center items-start pt-10 opacity-0 hover:opacity-100 transition-opacity duration-300 cursor-pointer bg-gradient-to-b from-red-950/60 to-transparent"
             onClick={() => {
-               if (gameState === 'PLAYER_TURN' && showControls) {
+               if (gameState === 'PLAYER_TURN' && showControls && !hasSurrendered) {
                    fireGun('dealer', 'player');
                    (window as any).dealerDomHovered = false;
                }
@@ -7319,7 +7603,7 @@ export function Arena3D({
           <div 
             className="absolute bottom-0 left-0 right-0 h-[25vh] md:h-[30vh] z-[115] flex justify-center items-end pb-10 opacity-0 hover:opacity-100 transition-opacity duration-300 cursor-pointer bg-gradient-to-t from-blue-950/60 to-transparent"
             onClick={() => {
-               if (gameState === 'PLAYER_TURN' && showControls) {
+               if (gameState === 'PLAYER_TURN' && showControls && !hasSurrendered) {
                    fireGun('player', 'player');
                }
             }}
@@ -7329,23 +7613,8 @@ export function Arena3D({
         </>
       )}
 
-      {/* SURRENDER: grim-conditions only, player drops gun for shotgun execution */}
-      {player.health > 0 && gameState === 'PLAYER_TURN' && showControls && !isLookingAtShopRef.current && isSurrenderAvailable && surrender && (
-        <button
-          onClick={() => {
-            if (gameState === 'PLAYER_TURN' && showControls) surrender();
-          }}
-          title="Surrender: drop the gun. The Dealer finishes it with a shotgun."
-          className="absolute bottom-6 right-6 z-[125] pointer-events-auto flex items-center gap-2 px-4 py-2.5 font-mono text-xs font-extrabold uppercase tracking-[0.25em] text-neutral-200 bg-black/70 border border-neutral-500/70 hover:border-white hover:text-white hover:bg-neutral-900/80 backdrop-blur-md shadow-[0_0_25px_rgba(0,0,0,0.8)] transition-all cursor-pointer"
-        >
-          <span aria-hidden>🏳️</span>
-          <span>Surrender</span>
-          <span className="text-[9px] text-neutral-400 border border-neutral-700 px-1 py-0.5">F</span>
-        </button>
-      )}
-
        {/* KEYBOARD QUICK CONTROLS HUD */}
-      {inputType !== 'gamepad' && getControllerSettings().showKeyboardHud !== false && (showControls || isLookingAtShopRef.current) && (
+      {inputType !== 'gamepad' && getControllerSettings().showKeyboardHud !== false && (showControls || isLookingAtShopRef.current) && !hasSurrendered && gameState !== 'SURRENDER' && (
         <motion.div
           className="absolute top-4 left-1/2 -translate-x-1/2 z-[120] pointer-events-none hidden sm:flex items-center gap-2 frosted-glass-ui backdrop-blur-md px-4 py-2 font-mono text-[10px] md:text-[11px]"
           initial={{ opacity: 0, y: -10 }}
@@ -7377,15 +7646,6 @@ export function Arena3D({
             <span className="frosted-glass-item text-emerald-400 px-1.5 py-0.5 border border-emerald-800/80 font-extrabold">SPACE</span>
             <span className="text-neutral-300 font-semibold uppercase">CONFIRM</span>
           </div>
-          {isSurrenderAvailable && (
-            <>
-              <span className="text-neutral-700">|</span>
-              <div className="flex items-center gap-1.5 text-neutral-300">
-                <span className="frosted-glass-item text-neutral-200 px-1.5 py-0.5 border border-neutral-500/80 font-extrabold">F</span>
-                <span className="text-neutral-300 font-semibold uppercase">SURRENDER</span>
-              </div>
-            </>
-          )}
         </motion.div>
       )}
 
@@ -7394,8 +7654,8 @@ export function Arena3D({
         className="absolute right-8 top-20 sm:top-24 z-[130] flex flex-col items-end pointer-events-none"
         initial={{ opacity: 0, y: -20 }}
         animate={{ 
-          opacity: isLookingAtShopRef.current ? 1 : 0,
-          y: isLookingAtShopRef.current ? 0 : -20
+          opacity: (isLookingAtShopRef.current && !hasSurrendered && gameState !== 'SURRENDER') ? 1 : 0,
+          y: (isLookingAtShopRef.current && !hasSurrendered && gameState !== 'SURRENDER') ? 0 : -20
         }}
         transition={{ duration: 0.5, ease: "easeOut" }}
       >

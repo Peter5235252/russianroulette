@@ -1,6 +1,6 @@
 import { encryptApiKey, decryptApiKey, isEncrypted } from './utils/crypto';
 
-export type WebGpuUpscalingPreset = 'ultra_quality' | 'quality' | 'balanced' | 'performance';
+export type WebGpuUpscalingPreset = 'native' | 'ultra_quality' | 'quality' | 'balanced' | 'performance';
 export type ReflectionQuality = 'low' | 'medium' | 'high' | 'ultra';
 export type EffectQuality = 'low' | 'medium' | 'high' | 'ultra';
 export type AiProvider = 'gemini' | 'chatgpt' | 'claude' | 'grok';
@@ -36,6 +36,7 @@ export interface ControllerSettings {
   webGpuUpscalingPreset: WebGpuUpscalingPreset;
   webGpuSharpening: number;
   useWebGPU: boolean;
+  webglForcedByUser?: boolean;
   showKeyboardHud?: boolean;
   aiProvider: AiProvider;
   aiApiKey: string;
@@ -75,7 +76,8 @@ const defaultSettings: ControllerSettings = {
   polygonCount: 'low',
   webGpuUpscalingPreset: 'balanced',
   webGpuSharpening: 0.6,
-  useWebGPU: false,
+  useWebGPU: true,
+  webglForcedByUser: false,
   showKeyboardHud: true,
   aiProvider: 'gemini',
   aiApiKey: '',
@@ -108,6 +110,11 @@ const listeners = new Set<(s: ControllerSettings) => void>();
       if (parsed.webGpuUpscalingPreset === 'off') parsed.webGpuUpscalingPreset = 'balanced';
       if ((parsed as any).aiProvider === 'mistral') parsed.aiProvider = 'gemini';
       parsed.brightness = 1.0;
+
+      // Ensure useWebGPU is true by default unless the user explicitly forced WebGL via webglForcedByUser
+      if (parsed.webglForcedByUser !== true) {
+        parsed.useWebGPU = true;
+      }
 
       currentSettings = { ...defaultSettings, ...parsed };
       listeners.forEach(l => l(currentSettings));

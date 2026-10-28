@@ -90,7 +90,9 @@ export function CustomSelect<T extends string | number = string>({
       ref={containerRef}
     >
       {label && (
-        <label className="block text-neutral-400 font-mono uppercase text-xs font-bold mb-1.5 tracking-wider">
+        <label className={`block font-mono uppercase text-xs font-bold mb-1.5 tracking-wider ${
+          disabled ? 'text-neutral-500 opacity-70' : 'text-neutral-400'
+        }`}>
           {label}
         </label>
       )}

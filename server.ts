@@ -60,27 +60,36 @@ async function queryAiProvider(
       httpOptions: { headers: { "User-Agent": "aistudio-build" } }
     });
     const model = modelName || "gemini-3.8-flash";
-    const response = await aiClient.models.generateContent({
-      model,
-      contents: prompt,
-      config: {
-        systemInstruction,
-        thinkingConfig: { thinkingLevel },
-        temperature,
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            action: { type: Type.STRING },
-            itemIndex: { type: Type.INTEGER },
-            target: { type: Type.STRING },
-            reasoning: { type: Type.STRING }
-          },
-          required: ["action", "itemIndex", "target", "reasoning"]
+
+    const runGemini = async (targetModel: string) => {
+      return await aiClient.models.generateContent({
+        model: targetModel,
+        contents: prompt,
+        config: {
+          systemInstruction,
+          thinkingConfig: { thinkingLevel },
+          temperature,
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              action: { type: Type.STRING },
+              itemIndex: { type: Type.INTEGER },
+              target: { type: Type.STRING },
+              reasoning: { type: Type.STRING }
+            },
+            required: ["action", "itemIndex", "target", "reasoning"]
+          }
         }
-      }
-    });
-    return cleanAndParseJson(response.text || "{}");
+      });
+    };
+
+    const response = await runGemini(model);
+    return {
+      ...cleanAndParseJson(response.text || "{}"),
+      _modelUsed: model,
+      _fallbackUsed: false
+    };
   }
 
   if (p === "chatgpt" || p === "openai") {
@@ -202,6 +211,7 @@ app.post("/api/ai-dealer", async (req, res) => {
       provider = 'gemini',
       apiKey = '',
       customModel = '',
+      model = '',
       difficulty = 'NORMAL',
       dealer,
       player,
@@ -274,7 +284,8 @@ Decision Rules:
 3. Return valid JSON following the required schema.
 `;
 
-    const parsed = await queryAiProvider(provider, apiKey, customModel, difficultyPersona, prompt, difficulty);
+    const targetModel = model || customModel || '';
+    const parsed = await queryAiProvider(provider, apiKey, targetModel, difficultyPersona, prompt, difficulty);
     return res.json(parsed);
 
   } catch (error: any) {

@@ -1213,62 +1213,56 @@ export const playScalpelCut = () => {
     const now = ctx.currentTime;
     const masterVol = globalMasterVolume;
 
-    // 1. Surgical Carbon Steel Blade Draw & Placement Ping
-    const glint = ctx.createOscillator();
-    const glintGain = ctx.createGain();
-    glint.type = 'triangle';
-    glint.frequency.setValueAtTime(4600, now);
-    glint.frequency.exponentialRampToValueAtTime(2800, now + 0.12);
-    glintGain.gain.setValueAtTime(0, now);
-    glintGain.gain.linearRampToValueAtTime(0.40 * masterVol, now + 0.015);
-    glintGain.gain.exponentialRampToValueAtTime(0.001, now + 0.16);
-    glint.connect(glintGain);
-    glintGain.connect(ctx.destination);
-    glint.start(now);
-    glint.stop(now + 0.18);
-
-    // Initial metallic contact "tick" on gun barrel
-    const clickOsc = ctx.createOscillator();
+    // 1. Tactile metal blade seating click against the gun barrel
+    const clickBufSize = Math.floor(ctx.sampleRate * 0.04);
+    const clickBuf = ctx.createBuffer(1, clickBufSize, ctx.sampleRate);
+    const clickData = clickBuf.getChannelData(0);
+    for (let i = 0; i < clickBufSize; i++) {
+      clickData[i] = (Math.random() * 2 - 1) * Math.exp(-i / (ctx.sampleRate * 0.008));
+    }
+    const clickNoise = ctx.createBufferSource();
+    clickNoise.buffer = clickBuf;
+    const clickFilter = ctx.createBiquadFilter();
+    clickFilter.type = 'bandpass';
+    clickFilter.frequency.value = 1400;
+    clickFilter.Q.value = 3.0;
     const clickGain = ctx.createGain();
-    clickOsc.type = 'sine';
-    clickOsc.frequency.setValueAtTime(2200, now + 0.08);
-    clickOsc.frequency.exponentialRampToValueAtTime(900, now + 0.12);
-    clickGain.gain.setValueAtTime(0, now + 0.08);
-    clickGain.gain.linearRampToValueAtTime(0.35 * masterVol, now + 0.085);
-    clickGain.gain.exponentialRampToValueAtTime(0.001, now + 0.13);
-    clickOsc.connect(clickGain);
+    clickGain.gain.setValueAtTime(0.35 * masterVol, now + 0.05);
+    clickGain.gain.exponentialRampToValueAtTime(0.001, now + 0.09);
+    clickNoise.connect(clickFilter);
+    clickFilter.connect(clickGain);
     clickGain.connect(ctx.destination);
-    clickOsc.start(now + 0.08);
-    clickOsc.stop(now + 0.14);
+    clickNoise.start(now + 0.05);
+    clickNoise.stop(now + 0.10);
 
-    // 2. High-Tension Surgical Blade Metal Sawing & Grinding Strokes (4 abrasive sawing passes)
+    // 2. Gritty abrasive metal sawing strokes (filtered industrial friction noise, zero musical tones)
     const strokeTimes = [0.15, 0.42, 0.70, 0.98];
     strokeTimes.forEach((st, idx) => {
       const strokeStart = now + st;
-      const strokeDur = 0.22;
+      const strokeDur = 0.20;
       const strokeBufSize = Math.floor(ctx.sampleRate * strokeDur);
       const strokeBuf = ctx.createBuffer(1, strokeBufSize, ctx.sampleRate);
       const sData = strokeBuf.getChannelData(0);
       for (let i = 0; i < strokeBufSize; i++) {
         const progress = i / strokeBufSize;
         const envelope = Math.sin(progress * Math.PI);
-        // Abrasive metal tooth grinding noise with high friction micro-shatter
-        sData[i] = (Math.random() * 2 - 1) * Math.pow(envelope, 1.4) * (0.7 + 0.3 * Math.sin(i * 0.15));
+        // Heavy abrasive rasping metal teeth friction
+        sData[i] = (Math.random() * 2 - 1) * Math.pow(envelope, 1.2) * (0.75 + 0.25 * Math.sin(i * 0.2));
       }
 
       const sNoise = ctx.createBufferSource();
       sNoise.buffer = strokeBuf;
       const sFilter = ctx.createBiquadFilter();
       sFilter.type = 'bandpass';
-      const baseFreq = 3400 + idx * 450;
+      const baseFreq = 1600 + (idx % 2) * 250;
       sFilter.frequency.setValueAtTime(baseFreq, strokeStart);
-      sFilter.frequency.exponentialRampToValueAtTime(baseFreq + 1600, strokeStart + strokeDur * 0.5);
-      sFilter.frequency.exponentialRampToValueAtTime(baseFreq - 400, strokeStart + strokeDur);
-      sFilter.Q.value = 8.5;
+      sFilter.frequency.linearRampToValueAtTime(baseFreq + 300, strokeStart + strokeDur * 0.5);
+      sFilter.frequency.linearRampToValueAtTime(baseFreq, strokeStart + strokeDur);
+      sFilter.Q.value = 4.0;
 
       const sGain = ctx.createGain();
       sGain.gain.setValueAtTime(0, strokeStart);
-      sGain.gain.linearRampToValueAtTime((0.55 + idx * 0.08) * masterVol, strokeStart + strokeDur * 0.35);
+      sGain.gain.linearRampToValueAtTime((0.45 + idx * 0.05) * masterVol, strokeStart + strokeDur * 0.3);
       sGain.gain.exponentialRampToValueAtTime(0.001, strokeStart + strokeDur);
 
       sNoise.connect(sFilter);
@@ -1276,113 +1270,97 @@ export const playScalpelCut = () => {
       sGain.connect(ctx.destination);
       sNoise.start(strokeStart);
       sNoise.stop(strokeStart + strokeDur + 0.02);
-
-      // High-frequency hot metal shaving screech overtone
-      const screech = ctx.createOscillator();
-      const screechGain = ctx.createGain();
-      screech.type = 'sawtooth';
-      screech.frequency.setValueAtTime(1800 + idx * 300, strokeStart);
-      screech.frequency.exponentialRampToValueAtTime(3200 + idx * 400, strokeStart + strokeDur * 0.5);
-      screech.frequency.exponentialRampToValueAtTime(2100, strokeStart + strokeDur);
-
-      const screechFilter = ctx.createBiquadFilter();
-      screechFilter.type = 'highpass';
-      screechFilter.frequency.value = 1600;
-
-      screechGain.gain.setValueAtTime(0, strokeStart);
-      screechGain.gain.linearRampToValueAtTime(0.18 * masterVol, strokeStart + strokeDur * 0.2);
-      screechGain.gain.exponentialRampToValueAtTime(0.001, strokeStart + strokeDur);
-
-      screech.connect(screechFilter);
-      screechFilter.connect(screechGain);
-      screechGain.connect(ctx.destination);
-      screech.start(strokeStart);
-      screech.stop(strokeStart + strokeDur + 0.02);
     });
 
-    // 3. Heavy Metal Fracture Snap & Barrel Shear (At cut apex t=1.28s)
+    // 3. Heavy industrial metal fracture snap & barrel shear (instant t=1.28s)
     const snapTime = now + 1.28;
     
-    // Snap crack impulse
-    const snapBufSize = Math.floor(ctx.sampleRate * 0.08);
+    // Low-end concussive table jolt
+    const thumpOsc = ctx.createOscillator();
+    const thumpGain = ctx.createGain();
+    thumpOsc.type = 'triangle';
+    thumpOsc.frequency.setValueAtTime(110, snapTime);
+    thumpOsc.frequency.exponentialRampToValueAtTime(40, snapTime + 0.12);
+    thumpGain.gain.setValueAtTime(0.55 * masterVol, snapTime);
+    thumpGain.gain.exponentialRampToValueAtTime(0.001, snapTime + 0.14);
+    thumpOsc.connect(thumpGain);
+    thumpGain.connect(ctx.destination);
+    thumpOsc.start(snapTime);
+    thumpOsc.stop(snapTime + 0.15);
+
+    // Sharp mechanical snap crack
+    const snapBufSize = Math.floor(ctx.sampleRate * 0.07);
     const snapBuf = ctx.createBuffer(1, snapBufSize, ctx.sampleRate);
     const snapData = snapBuf.getChannelData(0);
     for (let i = 0; i < snapBufSize; i++) {
-      snapData[i] = (Math.random() * 2 - 1) * Math.exp(-i / (ctx.sampleRate * 0.015));
+      snapData[i] = (Math.random() * 2 - 1) * Math.exp(-i / (ctx.sampleRate * 0.012));
     }
     const snapNoise = ctx.createBufferSource();
     snapNoise.buffer = snapBuf;
     const snapFilter = ctx.createBiquadFilter();
-    snapFilter.type = 'highpass';
-    snapFilter.frequency.value = 2200;
+    snapFilter.type = 'bandpass';
+    snapFilter.frequency.value = 1800;
+    snapFilter.Q.value = 2.5;
     const snapGain = ctx.createGain();
-    snapGain.gain.setValueAtTime(0.85 * masterVol, snapTime);
-    snapGain.gain.exponentialRampToValueAtTime(0.001, snapTime + 0.07);
+    snapGain.gain.setValueAtTime(0.70 * masterVol, snapTime);
+    snapGain.gain.exponentialRampToValueAtTime(0.001, snapTime + 0.08);
     snapNoise.connect(snapFilter);
     snapFilter.connect(snapGain);
     snapGain.connect(ctx.destination);
     snapNoise.start(snapTime);
-    snapNoise.stop(snapTime + 0.08);
+    snapNoise.stop(snapTime + 0.09);
 
-    // Hardened gun steel fracture ring
-    const shearRing = ctx.createOscillator();
-    const shearGain = ctx.createGain();
-    shearRing.type = 'triangle';
-    shearRing.frequency.setValueAtTime(1920, snapTime);
-    shearRing.frequency.exponentialRampToValueAtTime(840, snapTime + 0.45);
-    shearGain.gain.setValueAtTime(0, snapTime);
-    shearGain.gain.linearRampToValueAtTime(0.65 * masterVol, snapTime + 0.005);
-    shearGain.gain.exponentialRampToValueAtTime(0.001, snapTime + 0.50);
-    shearRing.connect(shearGain);
-    shearGain.connect(ctx.destination);
-    shearRing.start(snapTime);
-    shearRing.stop(snapTime + 0.55);
-
-    // 4. Severed Steel Barrel Piece Bouncing on Wooden Table
-    // Staggered physical table clatter impacts
-    const bounces = [
-      { delay: 1.44, freq: 1420, woodFreq: 140, gain: 0.55, decay: 0.22 }, // Heavy initial drop
-      { delay: 1.62, freq: 1880, woodFreq: 190, gain: 0.32, decay: 0.16 }, // 1st bounce
-      { delay: 1.76, freq: 2350, woodFreq: 240, gain: 0.18, decay: 0.10 }, // 2nd bounce
-      { delay: 1.86, freq: 2800, woodFreq: 280, gain: 0.09, decay: 0.06 }, // Settling roll tap
+    // 4. Dull, heavy, non-musical wooden table drop clatter (zero tonal pitches, purely realistic noise impact)
+    const drops = [
+      { delay: 1.42, dur: 0.14, freq: 320, vol: 0.45 }, // Solid primary impact
+      { delay: 1.60, dur: 0.08, freq: 420, vol: 0.20 }, // Muffled secondary bounce
     ];
 
-    bounces.forEach((b) => {
-      const bTime = now + b.delay;
-      
-      // Steel ring ping
-      const bOsc = ctx.createOscillator();
-      const bGain = ctx.createGain();
-      bOsc.type = 'sine';
-      bOsc.frequency.setValueAtTime(b.freq, bTime);
-      bOsc.frequency.exponentialRampToValueAtTime(b.freq * 0.95, bTime + b.decay);
-      bGain.gain.setValueAtTime(0, bTime);
-      bGain.gain.linearRampToValueAtTime(b.gain * masterVol, bTime + 0.003);
-      bGain.gain.exponentialRampToValueAtTime(0.001, bTime + b.decay);
-      bOsc.connect(bGain);
-      bGain.connect(ctx.destination);
-      bOsc.start(bTime);
-      bOsc.stop(bTime + b.decay + 0.02);
+    drops.forEach((d) => {
+      const dTime = now + d.delay;
+      const dBufSize = Math.floor(ctx.sampleRate * d.dur);
+      const dBuf = ctx.createBuffer(1, dBufSize, ctx.sampleRate);
+      const dData = dBuf.getChannelData(0);
+      for (let i = 0; i < dBufSize; i++) {
+        dData[i] = (Math.random() * 2 - 1) * Math.exp(-i / (ctx.sampleRate * 0.02));
+      }
+      const dNoise = ctx.createBufferSource();
+      dNoise.buffer = dBuf;
+      const dFilter = ctx.createBiquadFilter();
+      dFilter.type = 'lowpass';
+      dFilter.frequency.value = d.freq;
+      const dGain = ctx.createGain();
+      dGain.gain.setValueAtTime(d.vol * masterVol, dTime);
+      dGain.gain.exponentialRampToValueAtTime(0.001, dTime + d.dur);
+      dNoise.connect(dFilter);
+      dFilter.connect(dGain);
+      dGain.connect(ctx.destination);
+      dNoise.start(dTime);
+      dNoise.stop(dTime + d.dur + 0.02);
 
-      // Wooden table body thud
-      const wOsc = ctx.createOscillator();
-      const wGain = ctx.createGain();
-      wOsc.type = 'triangle';
-      wOsc.frequency.setValueAtTime(b.woodFreq, bTime);
-      wOsc.frequency.exponentialRampToValueAtTime(45, bTime + b.decay * 0.7);
-      wGain.gain.setValueAtTime(0, bTime);
-      wGain.gain.linearRampToValueAtTime(b.gain * 0.65 * masterVol, bTime + 0.004);
-      wGain.gain.exponentialRampToValueAtTime(0.001, bTime + b.decay * 0.8);
-      wOsc.connect(wGain);
-      wGain.connect(ctx.destination);
-      wOsc.start(bTime);
-      wOsc.stop(bTime + b.decay + 0.02);
+      // Low wood thud component
+      const woodOsc = ctx.createOscillator();
+      const woodGain = ctx.createGain();
+      woodOsc.type = 'sine';
+      woodOsc.frequency.setValueAtTime(95, dTime);
+      woodOsc.frequency.exponentialRampToValueAtTime(45, dTime + d.dur);
+      woodGain.gain.setValueAtTime(d.vol * 0.5 * masterVol, dTime);
+      woodGain.gain.exponentialRampToValueAtTime(0.001, dTime + d.dur);
+      woodOsc.connect(woodGain);
+      woodGain.connect(ctx.destination);
+      woodOsc.start(dTime);
+      woodOsc.stop(dTime + d.dur + 0.02);
     });
 
   } catch (e) {
     console.warn("Scalpel cut audio failed:", e);
   }
 };
+
+let cachedStrikeBuf: AudioBuffer | null = null;
+let cachedFlameBuf: AudioBuffer | null = null;
+let cachedSizzleBuf: AudioBuffer | null = null;
+let cachedExhaleBuf: AudioBuffer | null = null;
 
 export const playCigaretteLighting = () => {
   try {
@@ -1403,16 +1381,18 @@ export const playCigaretteLighting = () => {
     flipOsc.start(now);
     flipOsc.stop(now + 0.09);
 
-    // 2. Serrated steel flint wheel strike friction scrapes
+    // 2. Serrated steel flint wheel strike friction scrapes (cached to prevent runtime buffer allocation lag)
     const strikeTime = now + 0.16;
     const strikeSize = Math.floor(ctx.sampleRate * 0.18);
-    const strikeBuf = ctx.createBuffer(1, strikeSize, ctx.sampleRate);
-    const sd = strikeBuf.getChannelData(0);
-    for (let i = 0; i < strikeSize; i++) {
-      sd[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / strikeSize, 0.8) * (Math.random() > 0.3 ? 1 : 0);
+    if (!cachedStrikeBuf || cachedStrikeBuf.sampleRate !== ctx.sampleRate || cachedStrikeBuf.length !== strikeSize) {
+      cachedStrikeBuf = ctx.createBuffer(1, strikeSize, ctx.sampleRate);
+      const sd = cachedStrikeBuf.getChannelData(0);
+      for (let i = 0; i < strikeSize; i++) {
+        sd[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / strikeSize, 0.8) * (Math.random() > 0.3 ? 1 : 0);
+      }
     }
     const spark = ctx.createBufferSource();
-    spark.buffer = strikeBuf;
+    spark.buffer = cachedStrikeBuf;
     const sparkFilter = ctx.createBiquadFilter();
     sparkFilter.type = 'bandpass';
     sparkFilter.frequency.setValueAtTime(4800, strikeTime);
@@ -1426,13 +1406,16 @@ export const playCigaretteLighting = () => {
     spark.start(strikeTime);
     spark.stop(strikeTime + 0.18);
 
-    // 3. Fluid ignition whoosh & warm turbulent flame
+    // 3. Fluid ignition whoosh & warm turbulent flame (cached)
     const flameTime = strikeTime + 0.07;
-    const flameBuf = ctx.createBuffer(1, Math.floor(ctx.sampleRate * 0.85), ctx.sampleRate);
-    const fd = flameBuf.getChannelData(0);
-    for (let i = 0; i < fd.length; i++) fd[i] = Math.random() * 2 - 1;
+    const flameSize = Math.floor(ctx.sampleRate * 0.85);
+    if (!cachedFlameBuf || cachedFlameBuf.sampleRate !== ctx.sampleRate || cachedFlameBuf.length !== flameSize) {
+      cachedFlameBuf = ctx.createBuffer(1, flameSize, ctx.sampleRate);
+      const fd = cachedFlameBuf.getChannelData(0);
+      for (let i = 0; i < fd.length; i++) fd[i] = Math.random() * 2 - 1;
+    }
     const flame = ctx.createBufferSource();
-    flame.buffer = flameBuf;
+    flame.buffer = cachedFlameBuf;
     const flameFilter = ctx.createBiquadFilter();
     flameFilter.type = 'lowpass';
     flameFilter.frequency.setValueAtTime(1400, flameTime);
@@ -1447,15 +1430,18 @@ export const playCigaretteLighting = () => {
     flame.start(flameTime);
     flame.stop(flameTime + 0.85);
 
-    // 4. Dry cured tobacco crackling sizzle & deep inhalation draw
+    // 4. Dry cured tobacco crackling sizzle & deep inhalation draw (cached)
     const sizzleTime = flameTime + 0.18;
-    const sizzleBuf = ctx.createBuffer(1, Math.floor(ctx.sampleRate * 0.95), ctx.sampleRate);
-    const szd = sizzleBuf.getChannelData(0);
-    for (let i = 0; i < szd.length; i++) {
-      szd[i] = (Math.random() > 0.84 ? (Math.random() * 2 - 1) : 0);
+    const sizzleSize = Math.floor(ctx.sampleRate * 0.95);
+    if (!cachedSizzleBuf || cachedSizzleBuf.sampleRate !== ctx.sampleRate || cachedSizzleBuf.length !== sizzleSize) {
+      cachedSizzleBuf = ctx.createBuffer(1, sizzleSize, ctx.sampleRate);
+      const szd = cachedSizzleBuf.getChannelData(0);
+      for (let i = 0; i < szd.length; i++) {
+        szd[i] = (Math.random() > 0.84 ? (Math.random() * 2 - 1) : 0);
+      }
     }
     const sizzle = ctx.createBufferSource();
-    sizzle.buffer = sizzleBuf;
+    sizzle.buffer = cachedSizzleBuf;
     const sizzleFilter = ctx.createBiquadFilter();
     sizzleFilter.type = 'highpass';
     sizzleFilter.frequency.value = 3400;
@@ -1480,15 +1466,17 @@ export const playSmokeExhale = () => {
     if (!ctx) return;
     const now = ctx.currentTime;
 
-    // Multi-phase warm pulmonary exhalation noise
+    // Multi-phase warm pulmonary exhalation noise (cached)
     const bufferSize = Math.floor(ctx.sampleRate * 1.35);
-    const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
-    const data = buffer.getChannelData(0);
-    for (let i = 0; i < bufferSize; i++) {
-      data[i] = Math.random() * 2 - 1;
+    if (!cachedExhaleBuf || cachedExhaleBuf.sampleRate !== ctx.sampleRate || cachedExhaleBuf.length !== bufferSize) {
+      cachedExhaleBuf = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+      const data = cachedExhaleBuf.getChannelData(0);
+      for (let i = 0; i < bufferSize; i++) {
+        data[i] = Math.random() * 2 - 1;
+      }
     }
     const exhale = ctx.createBufferSource();
-    exhale.buffer = buffer;
+    exhale.buffer = cachedExhaleBuf;
 
     const filter = ctx.createBiquadFilter();
     filter.type = 'lowpass';
@@ -1695,3 +1683,268 @@ export const playGlassBreakSound = () => {
     console.error('Failed to play glass break sound', e);
   }
 };
+
+export const playGunDropSound = () => {
+  try {
+    const ctx = getAudioContext();
+    if (!ctx) return;
+    if (ctx.state === 'suspended') ctx.resume();
+    const now = ctx.currentTime;
+
+    // 1. Initial heavy wood table thud
+    const thump = ctx.createOscillator();
+    const thumpGain = ctx.createGain();
+    thump.connect(thumpGain);
+    thumpGain.connect(ctx.destination);
+    thump.type = 'triangle';
+    thump.frequency.setValueAtTime(160, now);
+    thump.frequency.exponentialRampToValueAtTime(32, now + 0.18);
+    thumpGain.gain.setValueAtTime(0.9 * globalMasterVolume, now);
+    thumpGain.gain.exponentialRampToValueAtTime(0.01, now + 0.2);
+    thump.start(now);
+    thump.stop(now + 0.22);
+
+    // 2. Heavy steel frame and cylinder rattling on hardwood
+    const freqs = [780, 1150, 1820, 2400];
+    freqs.forEach((freq, idx) => {
+      const delay = idx * 0.035;
+      const metalOsc = ctx.createOscillator();
+      const metalGain = ctx.createGain();
+      metalOsc.connect(metalGain);
+      metalGain.connect(ctx.destination);
+      metalOsc.type = 'sine';
+      metalOsc.frequency.setValueAtTime(freq, now + delay);
+      metalOsc.frequency.exponentialRampToValueAtTime(freq * 0.75, now + delay + 0.12);
+      metalGain.gain.setValueAtTime(0, now);
+      metalGain.gain.setValueAtTime((0.35 / (idx + 1)) * globalMasterVolume, now + delay);
+      metalGain.gain.exponentialRampToValueAtTime(0.005, now + delay + 0.14);
+      metalOsc.start(now + delay);
+      metalOsc.stop(now + delay + 0.16);
+    });
+
+    // 3. Steel sliding scrape on wood
+    const scrapeSize = Math.floor(ctx.sampleRate * 0.28);
+    const scrapeBuf = ctx.createBuffer(1, scrapeSize, ctx.sampleRate);
+    const d = scrapeBuf.getChannelData(0);
+    for (let i = 0; i < scrapeSize; i++) {
+      d[i] = (Math.random() * 2 - 1) * Math.exp(-i / (ctx.sampleRate * 0.09));
+    }
+    const scrapeSrc = ctx.createBufferSource();
+    scrapeSrc.buffer = scrapeBuf;
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'bandpass';
+    filter.frequency.setValueAtTime(1400, now);
+    filter.Q.value = 3.0;
+    const scrapeGain = ctx.createGain();
+    scrapeGain.gain.setValueAtTime(0.5 * globalMasterVolume, now);
+    scrapeGain.gain.exponentialRampToValueAtTime(0.01, now + 0.26);
+    scrapeSrc.connect(filter);
+    filter.connect(scrapeGain);
+    scrapeGain.connect(ctx.destination);
+    scrapeSrc.start(now);
+    scrapeSrc.stop(now + 0.28);
+  } catch (e) {
+    console.warn("Gun drop sound failed:", e);
+  }
+};
+
+export const playShotgunPumpSound = () => {
+  try {
+    const ctx = getAudioContext();
+    if (!ctx) return;
+    if (ctx.state === 'suspended') ctx.resume();
+    const now = ctx.currentTime;
+
+    // Stroke 1: Racking backward (CHAK at now)
+    // Metallic friction slide
+    const slideSize = Math.floor(ctx.sampleRate * 0.12);
+    const slideBuf = ctx.createBuffer(1, slideSize, ctx.sampleRate);
+    const sd = slideBuf.getChannelData(0);
+    for (let i = 0; i < slideSize; i++) sd[i] = (Math.random() * 2 - 1) * Math.exp(-i / (ctx.sampleRate * 0.05));
+    const slideSrc = ctx.createBufferSource();
+    slideSrc.buffer = slideBuf;
+    const slideFilter = ctx.createBiquadFilter();
+    slideFilter.type = 'bandpass';
+    slideFilter.frequency.value = 1800;
+    slideFilter.Q.value = 2.5;
+    const slideGain = ctx.createGain();
+    slideGain.gain.setValueAtTime(0.85 * globalMasterVolume, now);
+    slideGain.gain.exponentialRampToValueAtTime(0.01, now + 0.11);
+    slideSrc.connect(slideFilter);
+    slideFilter.connect(slideGain);
+    slideGain.connect(ctx.destination);
+    slideSrc.start(now);
+
+    // Mechanical latch click 1
+    const click1 = ctx.createOscillator();
+    const click1Gain = ctx.createGain();
+    click1.connect(click1Gain);
+    click1Gain.connect(ctx.destination);
+    click1.type = 'triangle';
+    click1.frequency.setValueAtTime(950, now + 0.03);
+    click1.frequency.exponentialRampToValueAtTime(280, now + 0.09);
+    click1Gain.gain.setValueAtTime(0.7 * globalMasterVolume, now + 0.03);
+    click1Gain.gain.exponentialRampToValueAtTime(0.01, now + 0.10);
+    click1.start(now + 0.03);
+    click1.stop(now + 0.11);
+
+    // Stroke 2: Slamming forward into battery (CHIK at now + 0.22s)
+    const forwardTime = now + 0.22;
+    const slam = ctx.createOscillator();
+    const slamGain = ctx.createGain();
+    slam.connect(slamGain);
+    slamGain.connect(ctx.destination);
+    slam.type = 'sine';
+    slam.frequency.setValueAtTime(220, forwardTime);
+    slam.frequency.exponentialRampToValueAtTime(45, forwardTime + 0.15);
+    slamGain.gain.setValueAtTime(1.1 * globalMasterVolume, forwardTime);
+    slamGain.gain.exponentialRampToValueAtTime(0.01, forwardTime + 0.16);
+    slam.start(forwardTime);
+    slam.stop(forwardTime + 0.18);
+
+    // Heavy breach lockup click
+    const lock = ctx.createOscillator();
+    const lockGain = ctx.createGain();
+    lock.connect(lockGain);
+    lockGain.connect(ctx.destination);
+    lock.type = 'triangle';
+    lock.frequency.setValueAtTime(1850, forwardTime);
+    lock.frequency.exponentialRampToValueAtTime(420, forwardTime + 0.08);
+    lockGain.gain.setValueAtTime(0.9 * globalMasterVolume, forwardTime);
+    lockGain.gain.exponentialRampToValueAtTime(0.01, forwardTime + 0.09);
+    lock.start(forwardTime);
+    lock.stop(forwardTime + 0.1);
+
+    // Shell seating metallic chime
+    const shellChime = ctx.createOscillator();
+    const shellGain = ctx.createGain();
+    shellChime.connect(shellGain);
+    shellGain.connect(ctx.destination);
+    shellChime.type = 'sine';
+    shellChime.frequency.setValueAtTime(2600, forwardTime + 0.02);
+    shellChime.frequency.exponentialRampToValueAtTime(1200, forwardTime + 0.18);
+    shellGain.gain.setValueAtTime(0.4 * globalMasterVolume, forwardTime + 0.02);
+    shellGain.gain.exponentialRampToValueAtTime(0.005, forwardTime + 0.2);
+    shellChime.start(forwardTime + 0.02);
+    shellChime.stop(forwardTime + 0.22);
+  } catch (e) {
+    console.warn("Shotgun pump sound failed:", e);
+  }
+};
+
+export const playShotgunBlastSound = () => {
+  playSound('gunshot', true, 1.0);
+  try {
+    const ctx = getAudioContext();
+    if (!ctx) return;
+    if (ctx.state === 'suspended') ctx.resume();
+    const now = ctx.currentTime;
+
+    // 1. Earth-shattering Sub-Bass Concussion (12-gauge close quarters boom)
+    const sub = ctx.createOscillator();
+    const subGain = ctx.createGain();
+    sub.connect(subGain);
+    subGain.connect(ctx.destination);
+    sub.type = 'sine';
+    sub.frequency.setValueAtTime(120, now);
+    sub.frequency.exponentialRampToValueAtTime(18, now + 0.75);
+    subGain.gain.setValueAtTime(1.5 * globalMasterVolume, now);
+    subGain.gain.exponentialRampToValueAtTime(0.01, now + 0.8);
+    sub.start(now);
+    sub.stop(now + 0.85);
+
+    // 2. Massive Gunpowder Explosion Noise Burst
+    const blastSize = Math.floor(ctx.sampleRate * 0.9);
+    const blastBuf = ctx.createBuffer(1, blastSize, ctx.sampleRate);
+    const bd = blastBuf.getChannelData(0);
+    for (let i = 0; i < blastSize; i++) {
+      bd[i] = (Math.random() * 2 - 1) * Math.exp(-i / (ctx.sampleRate * 0.18));
+    }
+    const blastSrc = ctx.createBufferSource();
+    blastSrc.buffer = blastBuf;
+    const lowFilter = ctx.createBiquadFilter();
+    lowFilter.type = 'lowpass';
+    lowFilter.frequency.setValueAtTime(2800, now);
+    lowFilter.frequency.exponentialRampToValueAtTime(180, now + 0.6);
+    const blastGain = ctx.createGain();
+    blastGain.gain.setValueAtTime(1.4 * globalMasterVolume, now);
+    blastGain.gain.exponentialRampToValueAtTime(0.01, now + 0.7);
+    blastSrc.connect(lowFilter);
+    lowFilter.connect(blastGain);
+    blastGain.connect(ctx.destination);
+    blastSrc.start(now);
+
+    // 3. Supersonic Detonation Snap (high-frequency crack)
+    const crack = ctx.createOscillator();
+    const crackGain = ctx.createGain();
+    crack.connect(crackGain);
+    crackGain.connect(ctx.destination);
+    crack.type = 'sawtooth';
+    crack.frequency.setValueAtTime(3200, now);
+    crack.frequency.exponentialRampToValueAtTime(140, now + 0.08);
+    crackGain.gain.setValueAtTime(1.0 * globalMasterVolume, now);
+    crackGain.gain.exponentialRampToValueAtTime(0.01, now + 0.09);
+    crack.start(now);
+    crack.stop(now + 0.1);
+
+    // 4. Heavy Steel Barrel Ringing Echo
+    const ring = ctx.createOscillator();
+    const ringGain = ctx.createGain();
+    ring.connect(ringGain);
+    ringGain.connect(ctx.destination);
+    ring.type = 'sine';
+    ring.frequency.setValueAtTime(540, now);
+    ringGain.gain.setValueAtTime(0.45 * globalMasterVolume, now);
+    ringGain.gain.exponentialRampToValueAtTime(0.001, now + 1.2);
+    ring.start(now);
+    ring.stop(now + 1.25);
+  } catch (e) {
+    console.warn("Shotgun blast sound failed:", e);
+  }
+};
+
+export const playDealerSadisticLaugh = () => {
+  try {
+    const ctx = getAudioContext();
+    if (!ctx) return;
+    if (ctx.state === 'suspended') ctx.resume();
+    const now = ctx.currentTime;
+
+    // Guttural demonic low-pitch laughter cadence: 3 sinister chuckle pulses
+    const pulses = [0, 0.22, 0.44];
+    pulses.forEach((offset, idx) => {
+      const pTime = now + offset;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.type = 'sawtooth';
+      const baseFreq = 95 - idx * 8;
+      osc.frequency.setValueAtTime(baseFreq, pTime);
+      osc.frequency.linearRampToValueAtTime(baseFreq - 15, pTime + 0.16);
+
+      gain.gain.setValueAtTime(0, now);
+      gain.gain.setValueAtTime(0.35 * globalMasterVolume, pTime);
+      gain.gain.exponentialRampToValueAtTime(0.005, pTime + 0.18);
+
+      osc.start(pTime);
+      osc.stop(pTime + 0.2);
+    });
+
+    // Eerie harmonic resonant drone chime
+    const drone = ctx.createOscillator();
+    const droneGain = ctx.createGain();
+    drone.connect(droneGain);
+    droneGain.connect(ctx.destination);
+    drone.type = 'sine';
+    drone.frequency.setValueAtTime(220, now);
+    drone.frequency.exponentialRampToValueAtTime(110, now + 0.9);
+    droneGain.gain.setValueAtTime(0.25 * globalMasterVolume, now);
+    droneGain.gain.exponentialRampToValueAtTime(0.001, now + 0.95);
+    drone.start(now);
+    drone.stop(now + 1.0);
+  } catch (e) {
+    console.warn("Dealer sadistic laugh failed:", e);
+  }
+};
+

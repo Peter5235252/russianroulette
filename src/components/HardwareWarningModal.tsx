@@ -94,7 +94,7 @@ export function HardwareWarningModal({
               This game is <span className="text-amber-400 font-bold font-mono">HIGHLY DEMANDING</span> and features real-time 3D lighting, screen-space reflections, compute shader physics, and post-processing passes.
             </p>
             <p className="text-neutral-400 text-[11px]">
-              Graphics are locked to the <span className="text-neutral-200 font-mono font-bold">Low</span> preset to maintain playable framerates on integrated and entry-level hardware while maintaining artistic integrity. <span className="text-amber-400 font-mono">WebGPU Spatial Upscaling (FSR 1.0)</span> and sharpening remain fully customizable in Settings. Even with these optimizations, performance may be suboptimal.
+              Graphics are locked to the <span className="text-neutral-200 font-mono font-bold">Low</span> preset to maintain playable framerates on integrated and entry-level hardware while maintaining artistic integrity. <span className="text-amber-400 font-mono">Spatial Upscaling (FSR 1.0)</span> and sharpening remain fully customizable in Settings. Even with these optimizations, performance may be suboptimal.
             </p>
           </div>
 

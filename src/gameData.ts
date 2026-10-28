@@ -107,6 +107,7 @@ export const ITEM_DESCRIPTIONS: Record<string, string> = Object.fromEntries(
 );
 
 export const DIFFICULTY_PRICE_MULTIPLIERS: Record<Difficulty, number> = {
+  TUTORIAL: 1.0,
   NORMAL: 1.0,
   HARD: 1.35,
   VERY_HARD: 1.75,
@@ -148,6 +149,7 @@ export interface RarityWeights {
 }
 
 export const PLAYER_DROP_WEIGHTS: Record<Difficulty, RarityWeights> = {
+  TUTORIAL: { COMMON: 45, UNCOMMON: 35, RARE: 15, EXOTIC: 5 },
   NORMAL: { COMMON: 45, UNCOMMON: 35, RARE: 15, EXOTIC: 5 },
   HARD: { COMMON: 60, UNCOMMON: 25, RARE: 11, EXOTIC: 4 },
   VERY_HARD: { COMMON: 70, UNCOMMON: 20, RARE: 8, EXOTIC: 2 },
@@ -155,6 +157,7 @@ export const PLAYER_DROP_WEIGHTS: Record<Difficulty, RarityWeights> = {
 };
 
 export const DEALER_DROP_WEIGHTS: Record<Difficulty, RarityWeights> = {
+  TUTORIAL: { COMMON: 45, UNCOMMON: 35, RARE: 15, EXOTIC: 5 },
   NORMAL: { COMMON: 45, UNCOMMON: 35, RARE: 15, EXOTIC: 5 },
   HARD: { COMMON: 35, UNCOMMON: 35, RARE: 20, EXOTIC: 10 },
   VERY_HARD: { COMMON: 25, UNCOMMON: 35, RARE: 25, EXOTIC: 15 },

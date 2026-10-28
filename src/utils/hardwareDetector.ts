@@ -249,7 +249,15 @@ export async function detectGpuHardware(): Promise<GpuDetectionResult> {
   if (typeof navigator !== 'undefined' && 'gpu' in navigator && (navigator as any).gpu) {
     try {
       const gpu = (navigator as any).gpu;
-      const adapter = await gpu.requestAdapter({ powerPreference: 'high-performance' });
+      let adapter = null;
+      try {
+        adapter = await gpu.requestAdapter({ powerPreference: 'high-performance' });
+      } catch {}
+      if (!adapter) {
+        try {
+          adapter = await gpu.requestAdapter();
+        } catch {}
+      }
       if (adapter) {
         isWebGPU = true;
         renderApi = 'WebGPU (Dawn Hardware Pipeline)';

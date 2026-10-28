@@ -9,7 +9,19 @@ export const isWebGPUSupported = async (): Promise<{ supported: boolean; reason?
     };
   }
   try {
-    const adapter = await gpu.requestAdapter();
+    let adapter = null;
+    try {
+      adapter = await gpu.requestAdapter({ powerPreference: 'high-performance' });
+    } catch {
+      // ignore and try default requestAdapter below
+    }
+    if (!adapter) {
+      try {
+        adapter = await gpu.requestAdapter();
+      } catch {
+        // ignore
+      }
+    }
     if (!adapter) {
       return {
         supported: false,
@@ -26,40 +38,63 @@ export const isWebGPUSupported = async (): Promise<{ supported: boolean; reason?
 };
 
 export const createWebGPURenderer = async (canvas: HTMLCanvasElement, forceWebGL: boolean = false) => {
-  let requiredLimits: Record<string, number> = {};
   const check = await isWebGPUSupported();
-  
-  if (check.supported && !forceWebGL) {
-    const gpu = (navigator as any).gpu;
-    if (gpu) {
-      try {
-        const adapter = await gpu.requestAdapter({ powerPreference: 'high-performance' });
-        if (adapter && adapter.limits) {
-          if (adapter.limits.maxColorAttachmentBytesPerSample) {
-            requiredLimits.maxColorAttachmentBytesPerSample = adapter.limits.maxColorAttachmentBytesPerSample;
-          }
-          if (adapter.limits.maxStorageBufferBindingSize) {
-            requiredLimits.maxStorageBufferBindingSize = adapter.limits.maxStorageBufferBindingSize;
-          }
-          if (adapter.limits.maxComputeWorkgroupStorageSize) {
-            requiredLimits.maxComputeWorkgroupStorageSize = adapter.limits.maxComputeWorkgroupStorageSize;
-          }
-        }
-      } catch (e) {
-        console.warn('Could not query WebGPU adapter limits:', e);
-      }
+  const shouldUseWebGL = forceWebGL || !check.supported;
+
+  if (shouldUseWebGL) {
+    if (forceWebGL && check.supported) {
+      console.info('WebGPU is supported but forced to WebGL fallback by user settings.');
+    } else {
+      console.warn(`WebGPU is unsupported (${check.reason || 'no hardware adapter'}). Falling back to WebGLBackend.`);
     }
-  } else {
-    console.warn(`WebGPU is unsupported or forced off by settings. Falling back to WebGLBackend.`);
+  }
+
+  // Safety filter to silence benign WebGL context lost errors on renderer teardown
+  if (typeof window !== 'undefined' && !(window as any).__deviceLostFilterInstalled) {
+    (window as any).__deviceLostFilterInstalled = true;
+    const originalConsoleError = console.error.bind(console);
+    console.error = (...args: any[]) => {
+      if (args.length > 0 && typeof args[0] === 'string') {
+        if (args[0].includes('WebGPURenderer') && args[0].includes('Device Lost')) {
+          // Benign context loss during pipeline switch from WebGL to WebGPU
+          return;
+        }
+      }
+      originalConsoleError(...args);
+    };
   }
 
   const renderer = new WebGPURenderer({
     canvas,
     antialias: false,
     powerPreference: 'high-performance',
-    requiredLimits,
-    forceWebGL: forceWebGL || !check.supported
+    forceWebGL: shouldUseWebGL
   });
+
+  let isDisposed = false;
+
+  // Override onDeviceLost to prevent verbose error spam during intentional renderer destruction
+  (renderer as any).onDeviceLost = (info: any) => {
+    if (isDisposed) return;
+    if (info?.api === 'WebGL') {
+      return;
+    }
+    console.warn(`[WebGPURenderer] Device loss: ${info?.message || 'unknown'}`);
+  };
+
+  const originalDispose = renderer.dispose.bind(renderer);
+  renderer.dispose = () => {
+    isDisposed = true;
+    try {
+      const backend = (renderer as any).backend;
+      if (backend && backend._onContextLost && renderer.domElement) {
+        renderer.domElement.removeEventListener('webglcontextlost', backend._onContextLost, false);
+      }
+    } catch (e) {}
+    try {
+      originalDispose();
+    } catch (e) {}
+  };
 
   await (renderer as any).init();
 

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
-import { X, Monitor, Sparkles, Volume2, Gamepad2, Check, Bot, Cpu, Loader2, CheckCircle2, AlertCircle, ShieldCheck, Lock } from 'lucide-react';
+import { X, Monitor, Sparkles, Volume2, Gamepad2, Check, Bot, Cpu, Loader2, CheckCircle2, AlertCircle, ShieldCheck, Lock, AlertTriangle } from 'lucide-react';
 import { CustomSelect, SelectOption } from './CustomSelect';
 import { IndustrialScrollArea } from './IndustrialScrollArea';
 import { getMasterVolume, getAmbientVolume, setMasterVolume, setAmbientVolume, playUIHover, playUIClick, playUISliderTick } from '../audio';
@@ -8,6 +8,7 @@ import { getControllerSettings, setControllerSettings, subscribeControllerSettin
 import { Difficulty } from '../types';
 import { getDifficultyConfig } from '../App';
 import { detectGpuHardware, GpuDetectionResult } from '../utils/hardwareDetector';
+import { isWebGPUSupported } from '../renderers/RendererManager';
 
 interface SettingsPanelProps {
   difficulty?: Difficulty;
@@ -106,6 +107,27 @@ export function SettingsPanel({ difficulty = 'NORMAL', onClose }: SettingsPanelP
   useEffect(() => {
     detectGpuHardware().then(res => setGpuHardware(res));
   }, []);
+
+  const [isWebGpuSupportedOnHardware, setIsWebGpuSupportedOnHardware] = useState(true);
+
+  useEffect(() => {
+    isWebGPUSupported().then(res => {
+      setIsWebGpuSupportedOnHardware(res.supported);
+    });
+  }, []);
+
+  const isWebGLActive = !useWebGPU || !isWebGpuSupportedOnHardware;
+
+  const handleTogglePipelineOnTheFly = () => {
+    if (!isWebGpuSupportedOnHardware) return;
+    const nextUseWebGPU = !useWebGPU;
+
+    setUseWebGPU(nextUseWebGPU);
+    setControllerSettings({
+      useWebGPU: nextUseWebGPU,
+      webglForcedByUser: !nextUseWebGPU,
+    });
+  };
 
   useEffect(() => {
     return subscribeControllerSettings(s => {
@@ -304,7 +326,7 @@ export function SettingsPanel({ difficulty = 'NORMAL', onClose }: SettingsPanelP
           motionBlurEnabled: true,
           motionBlurQuality: 'ultra',
           polygonCount: 'ultra',
-          webGpuUpscalingPreset: 'ultra_quality',
+          webGpuUpscalingPreset: 'native',
           webGpuSharpening: 0.4,
           particleQuality: 'ultra'
         });
@@ -320,6 +342,10 @@ export function SettingsPanel({ difficulty = 'NORMAL', onClose }: SettingsPanelP
       if (Object.keys(allowed).length > 0) {
         setControllerSettings(allowed);
       }
+      return;
+    }
+    if ('useWebGPU' in update && !('graphicsPreset' in update)) {
+      setControllerSettings(update);
       return;
     }
     setControllerSettings({ ...update, graphicsPreset: 'Custom' });
@@ -414,82 +440,84 @@ export function SettingsPanel({ difficulty = 'NORMAL', onClose }: SettingsPanelP
           {/* TAB 1: UNIFIED DISPLAY & GRAPHICS */}
           {activeTab === 'graphics' && (
             <div className="space-y-6">
-              {/* GPU HARDWARE TELEMETRY ADVISORY BANNER */}
-              {gpuHardware && (
-                <div className={`p-3.5 border font-mono text-xs space-y-2 ${
-                  gpuHardware.isLowEndOrIntegrated
-                    ? 'border-amber-900/80 bg-amber-950/20'
-                    : 'border-neutral-800 bg-black/40'
-                }`}>
-                  <div className="flex items-center justify-between gap-2 flex-wrap">
-                    <div className="flex items-center gap-2">
-                      <Cpu className={`w-4 h-4 ${gpuHardware.isLowEndOrIntegrated ? 'text-amber-400' : 'text-emerald-400'}`} />
-                      <span className="font-bold uppercase tracking-wider text-[11px] text-neutral-200">
-                        HARDWARE TELEMETRY // {gpuHardware.isWebGPU ? 'WEBGPU NATIVE' : 'WEBGL'}
-                      </span>
-                    </div>
-                    <span className={`px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider border ${
-                      gpuHardware.isLowEndOrIntegrated
-                        ? 'border-amber-700/80 bg-amber-950/80 text-amber-300'
-                        : 'border-emerald-700/80 bg-emerald-950/80 text-emerald-300'
-                    }`}>
-                      {gpuHardware.isFallback ? 'SOFTWARE ADAPTER' : gpuHardware.isIntegrated ? 'INTEGRATED GPU' : gpuHardware.isLowEndOrIntegrated ? 'LOW COMPUTE TIER' : 'DEDICATED GPU'}
+
+              {/* SECTION: RENDERING PIPELINE ARCHITECTURE (ON-THE-FLY TOGGLE) */}
+              <div className="p-3.5 rounded-none border border-neutral-800/90 bg-neutral-950/70 space-y-3 font-mono">
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <div className="flex items-center gap-2">
+                    <Cpu className="w-4 h-4 text-red-500" />
+                    <span className="text-neutral-200 font-mono uppercase text-xs font-bold tracking-wider">
+                      Rendering Pipeline
                     </span>
                   </div>
-
-                  <div className="text-[11px] text-neutral-300 flex items-center justify-between gap-2 flex-wrap">
-                    <span className="text-neutral-500 uppercase text-[10px]">DEVICE:</span>
-                    <span className="font-semibold text-neutral-200 truncate max-w-full">{gpuHardware.gpuName}</span>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1.5 pt-1 text-[10px] text-neutral-400 border-t border-neutral-900">
-                    <div className="flex justify-between items-center gap-1">
-                      <span className="text-neutral-500">PLATFORM:</span>
-                      <span className="text-neutral-300 font-medium">{gpuHardware.os}</span>
-                    </div>
-                    <div className="flex justify-between items-center gap-1">
-                      <span className="text-neutral-500">API PIPELINE:</span>
-                      <span className="text-neutral-300 font-medium">{gpuHardware.renderApi}</span>
-                    </div>
-                    <div className="flex justify-between items-center gap-1">
-                      <span className="text-neutral-500">ARCHITECTURE:</span>
-                      <span className="text-neutral-300 font-medium">{gpuHardware.vendor} ({gpuHardware.architecture})</span>
-                    </div>
-                    <div className="flex justify-between items-center gap-1">
-                      <span className="text-neutral-500">HOST SPECS:</span>
-                      <span className="text-neutral-300 font-medium">
-                        {gpuHardware.hardwareConcurrency ? `${gpuHardware.hardwareConcurrency}T` : 'Auto'} CPU
-                        {gpuHardware.deviceMemory ? ` / ${gpuHardware.deviceMemory}GB RAM` : ''}
-                      </span>
-                    </div>
-                  </div>
-
-                  {gpuHardware.isLowEndOrIntegrated && (
-                    <div className="text-[10px] text-amber-400/90 pt-1 border-t border-amber-950/80 leading-relaxed font-sans">
-                      Notice: Heavy shader passes (SSR, GTAO, Compute Particles) are active. Baseline calibrated to Low with FSR upscaling for optimal frametime.
-                    </div>
-                  )}
-
-                  <div className="pt-2 mt-2 border-t border-neutral-800/80 flex items-center justify-between gap-2 flex-wrap">
-                    <span className="text-neutral-400 uppercase text-[10px]">RENDER ENGINE:</span>
-                    <button
-                      role="switch"
-                      aria-checked={useWebGPU}
-                      onClick={() => {
-                        handleCustomSetting({ useWebGPU: !useWebGPU });
-                        setTimeout(() => window.location.reload(), 150);
-                      }}
-                      className={`px-3 py-1 border text-[10px] font-bold tracking-wider uppercase transition-colors cursor-pointer ${
-                        useWebGPU
-                          ? 'border-emerald-700/80 bg-emerald-950/50 text-emerald-300 hover:bg-emerald-900/80'
-                          : 'border-amber-700/80 bg-amber-950/50 text-amber-300 hover:bg-amber-900/80'
-                      }`}
-                    >
-                      {useWebGPU ? 'WEBGPU (DEFAULT)' : 'WEBGL (FALLBACK)'}
-                    </button>
+                  <div className="flex items-center gap-2">
+                    <span className={`text-[10px] font-mono font-bold px-2 py-0.5 uppercase tracking-wider border ${
+                      isWebGLActive
+                        ? 'text-amber-400 bg-amber-950/70 border-amber-800/80 shadow-[0_0_8px_rgba(245,158,11,0.2)]'
+                        : 'text-emerald-400 bg-emerald-950/70 border-emerald-800/80 shadow-[0_0_8px_rgba(16,185,129,0.2)]'
+                    }`}>
+                      {isWebGLActive ? 'WEBGL 2.0 (FALLBACK)' : 'WEBGPU (HARDWARE ACCELERATED)'}
+                    </span>
                   </div>
                 </div>
-              )}
+
+                <div className="flex items-center justify-between gap-4 flex-wrap pt-0.5">
+                  <div className="space-y-0.5 max-w-sm">
+                    <div className="text-[11px] text-neutral-300 font-bold uppercase tracking-wide">
+                      {isWebGLActive ? 'Compatibility Pipeline Active' : 'Next-Gen Hardware Pipeline Active'}
+                    </div>
+                    <p className="text-[10px] text-neutral-500 leading-relaxed font-sans">
+                      {isWebGLActive
+                        ? 'WebGPU compute & deferred passes (GTAO, SSR, smoke wisps & blood physics) are bypassed. AMD FSR 1.0 upscaling and PBR materials remain fully active.'
+                        : 'Direct-to-hardware WGSL compute shaders, deferred MRT normals, Ground Truth Ambient Occlusion, and Screen Space Reflections active.'}
+                    </p>
+                  </div>
+
+                  {/* Toggle Switch */}
+                  <div className="flex items-center gap-2.5">
+                    <span className={`text-[10px] font-bold tracking-wider uppercase font-mono ${
+                      isWebGLActive ? 'text-amber-400' : 'text-neutral-500'
+                    }`}>
+                      WebGL
+                    </span>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={!isWebGLActive}
+                      disabled={!isWebGpuSupportedOnHardware}
+                      onClick={handleTogglePipelineOnTheFly}
+                      className={`relative inline-flex h-6 w-12 items-center border transition-all cursor-pointer rounded-none outline-none ${
+                        !isWebGpuSupportedOnHardware
+                          ? 'opacity-40 cursor-not-allowed border-neutral-800 bg-neutral-950'
+                          : !isWebGLActive
+                          ? 'border-emerald-600 bg-emerald-950/80 shadow-[0_0_12px_rgba(16,185,129,0.3)]'
+                          : 'border-amber-600 bg-amber-950/80 shadow-[0_0_12px_rgba(245,158,11,0.3)]'
+                      }`}
+                      title={!isWebGpuSupportedOnHardware ? 'WebGPU hardware adapter is unsupported or disabled in this browser' : 'Toggle rendering engine on the fly'}
+                    >
+                      <span
+                        className={`inline-block h-4 w-5 transform transition-transform duration-150 border border-black ${
+                          !isWebGLActive
+                            ? 'translate-x-6 bg-emerald-400'
+                            : 'translate-x-0.5 bg-amber-400'
+                        }`}
+                      />
+                    </button>
+                    <span className={`text-[10px] font-bold tracking-wider uppercase font-mono ${
+                      !isWebGLActive ? 'text-emerald-400' : 'text-neutral-500'
+                    }`}>
+                      WebGPU
+                    </span>
+                  </div>
+                </div>
+
+                {!isWebGpuSupportedOnHardware && (
+                  <div className="p-2 bg-amber-950/40 border border-amber-800/60 flex items-center gap-2 text-[10px] text-amber-300 font-mono">
+                    <AlertTriangle className="w-3.5 h-3.5 text-amber-400 flex-shrink-0" />
+                    <span>WebGPU is unsupported or disabled by browser flags. Fixed to WebGL 2.0 fallback.</span>
+                  </div>
+                )}
+              </div>
 
               {/* SECTION 1: QUALITY PRESET MATRIX */}
               <div className="space-y-2.5">
@@ -546,35 +574,61 @@ export function SettingsPanel({ difficulty = 'NORMAL', onClose }: SettingsPanelP
                     Custom
                   </div>
                 </div>
+
+                {isWebGLActive && (
+                  <div className="p-2.5 bg-neutral-950/90 border border-amber-900/60 flex items-start gap-2 text-amber-300 font-mono text-[11px] leading-relaxed">
+                    <AlertTriangle className="w-4 h-4 text-amber-400 flex-shrink-0 mt-0.5" />
+                    <div>
+                      <span className="font-bold uppercase tracking-wider text-amber-300 block mb-0.5">
+                        WebGL Pipeline Active — WebGPU-Exclusive Settings Disabled
+                      </span>
+                      <span>
+                        {graphicsPreset === 'Ultra' ? (
+                          <>
+                            <strong className="text-amber-200">Ultra Preset</strong> is active with 16x anisotropic texture filtering, ultra shadow maps, and maximum material quality. Note that WebGPU-exclusive settings (GTAO ambient occlusion, Screen Space Reflections, GPU compute blood/sparks, and atmospheric smoke wisps) have been disabled because of the WebGL rendering pipeline.
+                          </>
+                        ) : (
+                          <>
+                            Some WebGPU-exclusive settings (GTAO ambient occlusion, Screen Space Reflections, GPU compute blood/sparks, and atmospheric smoke wisps) have been disabled because of the WebGL rendering pipeline.
+                          </>
+                        )}
+                      </span>
+                    </div>
+                  </div>
+                )}
               </div>
 
-              {/* SECTION 2: WEBGPU SPATIAL UPSCALING (AMD FSR 1.0) & SHARPENING */}
+              {/* SECTION 2: SPATIAL UPSCALING (AMD FSR 1.0) & SHARPENING */}
               <div className="p-4 rounded-none border border-red-900/40 bg-black/50 space-y-4">
                 <div className="flex justify-between items-center flex-wrap gap-2">
                   <div className="flex items-center gap-2">
                     <Sparkles className="w-4 h-4 text-red-500" />
                     <span className="text-neutral-200 font-mono uppercase text-xs font-bold">
-                      WebGPU Spatial Upscaling (AMD FSR 1.0)
+                      Spatial Upscaling (AMD FSR 1.0)
                     </span>
                   </div>
                   <span className="text-xs font-mono font-bold text-red-400 bg-red-950/70 border border-red-800/60 px-2.5 py-0.5 uppercase tracking-wider">
-                    {webGpuUpscalingPreset === 'ultra_quality' ? 'Ultra Quality (88%)' :
+                    {webGpuUpscalingPreset === 'native' ? 'Native (100%)' :
+                     webGpuUpscalingPreset === 'ultra_quality' ? 'Ultra Quality (88%)' :
                      webGpuUpscalingPreset === 'quality' ? 'Quality (77%)' :
                      webGpuUpscalingPreset === 'balanced' ? 'Balanced (67%)' : 'Performance (50%)'}
                   </span>
                 </div>
                 
                 <p className="text-[11px] font-mono text-neutral-400 leading-relaxed">
-                  Edge-Adaptive Spatial Upsampling renders the 3D scene at optimized internal scale and upscales to native viewport resolution with edge reconstruction.
+                  {webGpuUpscalingPreset === 'native'
+                    ? 'Native resolution rendering is active (100% viewport scale). Spatial upsampling and RCAS sharpening are disabled.'
+                    : 'Edge-Adaptive Spatial Upsampling renders the 3D scene at optimized internal scale and upscales to native viewport resolution with edge reconstruction.'}
                 </p>
 
                 {/* Upscaling Presets */}
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 pt-1">
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-1.5 pt-1">
                   {[
-                    { id: 'ultra_quality', label: 'Ultra', sub: '88%' },
-                    { id: 'quality', label: 'Quality', sub: '77%' },
-                    { id: 'balanced', label: 'Balanced', sub: '67%' },
-                    { id: 'performance', label: 'Perf', sub: '50%' },
+                    { id: 'native' as const, label: 'Native', sub: '100%' },
+                    { id: 'ultra_quality' as const, label: 'Ultra', sub: '88%' },
+                    { id: 'quality' as const, label: 'Quality', sub: '77%' },
+                    { id: 'balanced' as const, label: 'Balanced', sub: '67%' },
+                    { id: 'performance' as const, label: 'Perf', sub: '50%' },
                   ].map(p => (
                     <button
                       key={p.id}
@@ -593,21 +647,43 @@ export function SettingsPanel({ difficulty = 'NORMAL', onClose }: SettingsPanelP
                 </div>
 
                 {/* RCAS Sharpening Slider */}
-                <div className="pt-3 border-t border-neutral-800/80 space-y-2">
+                <div className={`pt-3 border-t border-neutral-800/80 space-y-2 transition-opacity ${
+                  webGpuUpscalingPreset === 'native' ? 'opacity-40 cursor-not-allowed select-none' : ''
+                }`}>
                   <div className="flex justify-between items-center">
-                    <label className="text-neutral-300 font-mono uppercase text-xs font-bold flex items-center gap-1.5">
+                    <label className={`font-mono uppercase text-xs font-bold flex items-center gap-1.5 ${
+                      webGpuUpscalingPreset === 'native' ? 'text-neutral-500' : 'text-neutral-300'
+                    }`}>
                       Robust Contrast-Adaptive Sharpening (RCAS)
+                      {webGpuUpscalingPreset === 'native' && (
+                        <span className="text-[10px] font-normal lowercase tracking-normal text-neutral-500">
+                          (disabled in native mode)
+                        </span>
+                      )}
                     </label>
-                    <span className="text-red-400 font-mono text-xs font-bold">{Math.round(webGpuSharpening * 100)}%</span>
+                    <span className={`font-mono text-xs font-bold ${
+                      webGpuUpscalingPreset === 'native' ? 'text-neutral-600' : 'text-red-400'
+                    }`}>
+                      {webGpuUpscalingPreset === 'native' ? 'DISABLED' : `${Math.round(webGpuSharpening * 100)}%`}
+                    </span>
                   </div>
                   <input 
                     type="range" min="0.0" max="1.0" step="0.05"
+                    disabled={webGpuUpscalingPreset === 'native'}
                     value={webGpuSharpening}
                     onChange={(e) => handleCustomSetting({ webGpuSharpening: parseFloat(e.target.value) })}
-                    className="w-full h-2 rounded-none appearance-none bg-neutral-800 accent-red-600 border border-neutral-700 cursor-pointer"
+                    className={`w-full h-2 rounded-none appearance-none bg-neutral-800 border border-neutral-700 ${
+                      webGpuUpscalingPreset === 'native'
+                        ? 'accent-neutral-700 cursor-not-allowed opacity-50'
+                        : 'accent-red-600 cursor-pointer'
+                    }`}
                   />
-                  <p className="text-[10px] font-mono text-neutral-500">
-                    Adaptive edge-enhancement algorithm sharpening fine barrel engravings and CRT scanlines without grain amplification.
+                  <p className={`text-[10px] font-mono ${
+                    webGpuUpscalingPreset === 'native' ? 'text-neutral-600' : 'text-neutral-500'
+                  }`}>
+                    {webGpuUpscalingPreset === 'native'
+                      ? 'RCAS sharpening pass is disabled while running at native 100% viewport resolution.'
+                      : 'Adaptive edge-enhancement algorithm sharpening fine barrel engravings and CRT scanlines without grain amplification.'}
                   </p>
                 </div>
               </div>
@@ -621,43 +697,57 @@ export function SettingsPanel({ difficulty = 'NORMAL', onClose }: SettingsPanelP
                       Next-Gen Lighting & GPU Acceleration
                     </span>
                   </div>
-                  {isLowEndLocked && (
+                  {isWebGLActive ? (
+                    <span className="text-[10px] font-mono text-amber-500 flex items-center gap-1">
+                      <Lock className="w-3 h-3" /> WEBGPU PASSES BYPASSED
+                    </span>
+                  ) : isLowEndLocked ? (
                     <span className="text-[10px] font-mono text-amber-500 flex items-center gap-1">
                       <Lock className="w-3 h-3" /> FORCED LOW
                     </span>
-                  )}
+                  ) : null}
                 </div>
+
+                {isWebGLActive && (
+                  <div className="p-2.5 bg-neutral-950/90 border border-amber-900/50 flex items-start gap-2 text-amber-400 font-mono text-[11px] leading-relaxed">
+                    <AlertTriangle className="w-4 h-4 text-amber-400 flex-shrink-0 mt-0.5" />
+                    <div>
+                      <span className="font-bold uppercase tracking-wider text-amber-300 block mb-0.5">WebGL Compatibility Active — WebGPU Passes Bypassed</span>
+                      <span>GTAO, Screen Space Reflections, WGSL Compute Physics, and Atmospheric Volumetric Smoke are disabled on WebGL 2.0. Standard scene lighting, PBR materials, motion blur, and AMD FSR 1.0 spatial upscaling remain fully active.</span>
+                    </div>
+                  </div>
+                )}
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <CustomSelect<EffectQuality>
-                    label="Ground Truth Ambient Occlusion (GTAO)"
+                    label={isWebGLActive ? "GTAO (Ambient Occlusion) — Requires WebGPU" : "Ground Truth Ambient Occlusion (GTAO)"}
                     options={effectQualityOptions}
-                    value={gtaoQuality}
-                    disabled={isLowEndLocked}
+                    value={isWebGLActive ? 'low' : gtaoQuality}
+                    disabled={isLowEndLocked || isWebGLActive}
                     onChange={(val) => handleCustomSetting({ gtaoQuality: val, gtaoEnabled: true })}
                   />
 
                   <CustomSelect<EffectQuality>
-                    label="Screen Space Reflections (SSR)"
+                    label={isWebGLActive ? "Screen Space Reflections (SSR) — Requires WebGPU" : "Screen Space Reflections (SSR)"}
                     options={effectQualityOptions}
-                    value={ssrQuality}
-                    disabled={isLowEndLocked}
+                    value={isWebGLActive ? 'low' : ssrQuality}
+                    disabled={isLowEndLocked || isWebGLActive}
                     onChange={(val) => handleCustomSetting({ ssrQuality: val, ssrEnabled: true })}
                   />
 
                   <CustomSelect<EffectQuality>
-                    label={useWebGPU ? "WebGPU Compute Physics (Blood & Sparks)" : "CPU Physics (Blood & Sparks - WebGL)"}
+                    label={isWebGLActive ? "Compute Physics (Blood & Sparks) — Requires WebGPU" : "WebGPU Compute Physics (Blood & Sparks)"}
                     options={effectQualityOptions}
-                    value={computePhysicsQuality}
-                    disabled={isLowEndLocked || !useWebGPU}
+                    value={isWebGLActive ? 'low' : computePhysicsQuality}
+                    disabled={isLowEndLocked || isWebGLActive}
                     onChange={(val) => handleCustomSetting({ computePhysicsQuality: val, gpuComputePhysics: true })}
                   />
 
                   <CustomSelect<EffectQuality>
-                    label={useWebGPU ? "Atmospheric Smoke & Ash Wisps" : "Atmospheric Smoke (Requires WebGPU)"}
+                    label={isWebGLActive ? "Atmospheric Smoke & Ash Wisps — Requires WebGPU" : "Atmospheric Smoke & Ash Wisps"}
                     options={effectQualityOptions}
-                    value={volumetricSmokeQuality}
-                    disabled={isLowEndLocked || !useWebGPU}
+                    value={isWebGLActive ? 'low' : volumetricSmokeQuality}
+                    disabled={isLowEndLocked || isWebGLActive}
                     onChange={(val) => handleCustomSetting({ volumetricSmokeQuality: val, volumetricSmokeEnabled: true })}
                   />
 
@@ -1027,7 +1117,7 @@ export function SettingsPanel({ difficulty = 'NORMAL', onClose }: SettingsPanelP
                     { value: "gemini", label: "Gemini", description: "Google DeepMind" },
                     { value: "chatgpt", label: "ChatGPT", description: "OpenAI" },
                     { value: "claude", label: "Claude", description: "Anthropic" },
-                    { value: "grok", label: "Grok", description: "SpaceXAI" }
+                    { value: "grok", label: "Grok", description: "SpaceXSI" }
                   ]}
                   value={aiProvider}
                   onChange={(val) => handleAiSettingChange({ aiProvider: val })}
@@ -1062,7 +1152,7 @@ export function SettingsPanel({ difficulty = 'NORMAL', onClose }: SettingsPanelP
                     {aiProvider === 'gemini' && 'Obtain key from Google AI Studio (aistudio.google.com)'}
                     {aiProvider === 'chatgpt' && 'Obtain key from OpenAI Platform (platform.openai.com)'}
                     {aiProvider === 'claude' && 'Obtain key from Anthropic Console (console.anthropic.com)'}
-                    {aiProvider === 'grok' && 'Obtain key from SpaceXAI Console (console.x.ai)'}
+                    {aiProvider === 'grok' && 'Obtain key from SpaceXSI Console (console.x.ai)'}
                   </p>
                 </div>
 
@@ -1076,7 +1166,7 @@ export function SettingsPanel({ difficulty = 'NORMAL', onClose }: SettingsPanelP
                     type="text"
                     value={aiCustomModel}
                     onChange={(e) => handleAiSettingChange({ aiCustomModel: e.target.value })}
-                    placeholder={aiProvider === 'gemini' ? 'Default: gemini-3.8-flash (or enter custom model...)' : 'Enter custom model identifier...'}
+                    placeholder="Enter custom model identifier..."
                     className="w-full min-h-[44px] bg-neutral-950 border border-neutral-700 text-neutral-100 px-3 py-2.5 text-xs font-mono focus:border-red-600 focus:outline-none transition-all"
                   />
                 </div>
