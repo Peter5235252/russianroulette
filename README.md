@@ -65,4 +65,4 @@ npm run dev
 
 ## License
 
-No license file or repository license is currently declared.
+Unless otherwise stated, the original project code and documentation in this repository are licensed under the [MIT License](LICENSE). Third-party dependencies and externally hosted media remain under their respective licenses. The audio URLs in `src/audio.ts` point to external samples and do not relicense those recordings; check each source listing for its terms and attribution requirements.
