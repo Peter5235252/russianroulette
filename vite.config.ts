@@ -11,6 +11,10 @@ export default defineConfig(() => {
         '@': path.resolve(__dirname, '.'),
       },
     },
+    base: process.env.GITHUB_PAGES === 'true' ? '/russianroulette/' : '/',
+    build: {
+      outDir: process.env.GITHUB_PAGES === 'true' ? 'dist/site' : 'dist',
+    },
     server: {
       // HMR is disabled in AI Studio via DISABLE_HMR env var.
       // Do not modifyâfile watching is disabled to prevent flickering during agent edits.

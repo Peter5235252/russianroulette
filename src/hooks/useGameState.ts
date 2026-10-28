@@ -4,24 +4,11 @@ import { DEADLY_QUOTES, getRandomItemsByDifficulty, getItemPrice } from '../game
 import { TUTORIAL_STEPS, TutorialStep } from '../tutorial/tutorialData';
 import { playStartAudio, startAmbientDrone, playGunshot, playEmptyClick, playItemSound, playBloodSplatter } from '../audio';
 import { vibrateGamepad, getControllerSettings } from '../controller';
+import { applyWasmItem, createRound, createWasmSeed, resolveShotDamage } from '../wasm/gameCore';
 
 const INITIAL_HEALTH = 100;
 const DAMAGE_PER_SHOT = 35;
 const CYLINDER_SIZE = 6;
-
-const generateChambers = (numLive: number): Chamber[] => {
-  const chambers = Array(CYLINDER_SIZE).fill({ isLive: false, isSpent: false });
-  let placed = 0;
-  while (placed < numLive) {
-    const idx = Math.floor(Math.random() * CYLINDER_SIZE);
-    if (!chambers[idx].isLive) {
-      chambers[idx] = { isLive: true, isSpent: false };
-      placed++;
-    }
-  }
-  return chambers;
-};
-
 
 interface CoreState {
   gameState: GameState;
@@ -87,8 +74,7 @@ export const useGameState = () => {
   const startRound = async (initialLoading = false) => {
     dealerItemsUsedThisTurnRef.current = 0;
     updateState({ gameState: 'LOADING' });
-    const live = Math.floor(Math.random() * 5) + 1; // 1 to 5 live rounds
-    const newChambers = generateChambers(live);
+    const { liveCount: live, chambers: newChambers } = await createRound(createWasmSeed());
     
     updateState({
       chambers: newChambers,
@@ -291,23 +277,20 @@ export const useGameState = () => {
       setTimeout(playBloodSplatter, 150);
       updateState({ message: "", bloodLevel: 100 });
       
-      let damage = target === shooter ? (DAMAGE_PER_SHOT * 2) : DAMAGE_PER_SHOT; // Severe consequence for shooting self
-      
+      const targetReductionEnd = target === 'player'
+        ? updatedState.playerDamageReductionEnd
+        : updatedState.dealerDamageReductionEnd;
+      const targetIsProtected = Boolean(targetReductionEnd && Date.now() < targetReductionEnd);
+      let damage = await resolveShotDamage(
+        DAMAGE_PER_SHOT,
+        target === shooter,
+        updatedState.doubleDamageActive === shooter,
+        targetIsProtected
+      );
+
       if (updatedState.doubleDamageActive) {
-          if (updatedState.doubleDamageActive === shooter) {
-            damage *= 2;
-          }
-          updateState({ doubleDamageActive: null }); // clear buff
+        updateState({ doubleDamageActive: null });
       }
-      
-      let damageReduction = 0;
-      if (target === 'player' && updatedState.playerDamageReductionEnd && Date.now() < updatedState.playerDamageReductionEnd) {
-          damageReduction = 30;
-      } else if (target === 'dealer' && updatedState.dealerDamageReductionEnd && Date.now() < updatedState.dealerDamageReductionEnd) {
-          damageReduction = 30;
-      }
-      
-      damage = Math.max(0, damage - damageReduction);
 
       if (target === 'player') {
         const p = updatedState.player;
@@ -463,123 +446,20 @@ export const useGameState = () => {
     const s2 = stateRef.current;
     const chamber = s2.chambers[s2.currentChamberIndex];
     
-    let waitTime = 2200;
-    
-    switch (item) {
-      case 'MIRROR':
-        if (user === 'player') {
-            updateState({ subMessage: chamber.isLive ? "You see a live round inside." : "You see an empty chamber." });
-        } else {
-            updateState({ subMessage: "The Dealer inspects the chamber." });
-        }
-        break;
-      case 'PLIERS':
-        const newChambers = [...s2.chambers];
-        newChambers[s2.currentChamberIndex] = { ...chamber, isSpent: true };
-        updateState({ chambers: newChambers });
-        advanceChamber();
-        updateState({ subMessage: `Shell ejected. It was a ${chamber.isLive ? 'live round' : 'blank'}.` });
-        
-        // Bleed a bit
-        if (user === 'player') {
-             updateState({ player: { ...s2.player, health: Math.max(1, s2.player.health - 5) } });
-        } else {
-             updateState({ dealer: { ...s2.dealer, health: Math.max(1, s2.dealer.health - 5) } });
-        }
-        break;
-      case 'WHISKEY':
-        if (user === 'player') {
-             updateState({ player: { ...s2.player, health: Math.min(s2.player.maxHealth, s2.player.health + 20) } });
-        } else {
-             updateState({ dealer: { ...s2.dealer, health: Math.min(s2.dealer.maxHealth, s2.dealer.health + 20) } });
-        }
-        updateState({ subMessage: "Pain numbed. Vitality restored." });
-        break;
-      case 'TOURNIQUET':
-         if (user === 'player') {
-             updateState({ player: { ...s2.player, maxHealth: s2.player.maxHealth + 1 } });
-         } else {
-             updateState({ dealer: { ...s2.dealer, maxHealth: s2.dealer.maxHealth + 1 } });
-         }
-         updateState({ subMessage: "Braced for impact. Adrenaline surges." });
-         break;
-      case 'PENTAGRAM':
-         updateState({ 
-             player: { ...s2.player, health: s2.dealer.health },
-             dealer: { ...s2.dealer, health: s2.player.health },
-             subMessage: "Dark bargain struck. Life essence swapped."
-         });
-         break;
-      case 'CIGARETTE':
-         const reductionEnd = Date.now() + 20000;
-         if (user === 'player') {
-             updateState({ playerDamageReductionEnd: reductionEnd, subMessage: "You light a cigarette. Nerves steady as smoke fills your lungs." });
-         } else {
-             updateState({ dealerDamageReductionEnd: reductionEnd, subMessage: "The Dealer lights a cigarette and inhales a deep drag." });
-         }
-         waitTime = 3200;
-         break;
-      case 'SCALPEL':
-         updateState({ doubleDamageActive: user, subMessage: "The barrel is sawn off. Double damage next shot." });
-         waitTime = 3800;
-         break;
-      case 'DEFIBRILLATOR':
-         if (user === 'player') {
-             updateState({ player: { ...s2.player, health: Math.min(s2.player.maxHealth - 10, s2.player.health + 40), maxHealth: Math.max(10, s2.player.maxHealth - 10) } });
-         } else {
-             updateState({ dealer: { ...s2.dealer, health: Math.min(s2.dealer.maxHealth - 10, s2.dealer.health + 40), maxHealth: Math.max(10, s2.dealer.maxHealth - 10) } });
-         }
-         updateState({ subMessage: "A violent jolt. Vitality restored, but max health is permanently reduced." });
-         break;
-      case 'MEDKIT':
-         if (user === 'player') {
-             updateState({ player: { ...s2.player, health: s2.player.maxHealth } });
-         } else {
-             updateState({ dealer: { ...s2.dealer, health: s2.dealer.maxHealth } });
-         }
-         updateState({ subMessage: "Critical wounds patched. Fully restored." });
-         break;
-      case 'SYRINGE':
-         if (user === 'player') {
-             updateState({ player: { ...s2.player, health: Math.min(s2.player.maxHealth, s2.player.health + 50) } });
-         } else {
-             updateState({ dealer: { ...s2.dealer, health: Math.min(s2.dealer.maxHealth, s2.dealer.health + 50) } });
-         }
-         updateState({ subMessage: "Instant surge. 50 HP restored." });
-         break;
-      case 'RAZORBLADE':
-         let newHealth = user === 'player' ? s2.player.health - 10 : s2.dealer.health - 10;
-         newHealth = Math.max(1, newHealth); // Prevent absolute death strictly during item use
-         
-         if (user === 'player') {
-             // 180 bloodLevel to trigger both max opacity flash and the shake.
-             updateState({ player: { ...s2.player, health: newHealth }, bloodLevel: 180, subMessage: "Slashing flesh with the razorblade..." });
-             vibrateGamepad('jolt', { duration: 400 });
-         } else {
-             updateState({ dealer: { ...s2.dealer, health: newHealth }, subMessage: "Slashing flesh with the razorblade..." });
-         }
-         
-         const bladeChambers = [...s2.chambers];
-         const rChamber = bladeChambers[s2.currentChamberIndex];
-         
-         // Triple visceral sound playback for maximum effect
-         setTimeout(() => { playBloodSplatter(); if (user === 'player') vibrateGamepad('burst'); }, 50);
-         setTimeout(() => { playEmptyClick(); if (user === 'player') vibrateGamepad('click'); }, 150);
-         setTimeout(() => { playBloodSplatter(); if (user === 'player') vibrateGamepad('strong'); }, 250);
-         
-         await wait(1000);
-         
-         if (rChamber.isLive) {
-             updateState({ doubleDamageActive: user, subMessage: "The chamber was already live. Double damage active." });
-         } else {
-             bladeChambers[s2.currentChamberIndex] = { ...rChamber, isLive: true };
-             updateState({ chambers: bladeChambers, subMessage: "Blood seals the blank. It's now a live round." });
-         }
-         setTimeout(() => updateState({ bloodLevel: 0 }), 1500);
-         break;
+    const effect = await applyWasmItem(s2, item, user, Date.now());
+    updateState(effect.initialPatch as Partial<CoreState>);
+
+    if (effect.followUpDelayMs > 0) {
+      if (user === 'player') vibrateGamepad('jolt', { duration: 400 });
+      setTimeout(() => { playBloodSplatter(); if (user === 'player') vibrateGamepad('burst'); }, 50);
+      setTimeout(() => { playEmptyClick(); if (user === 'player') vibrateGamepad('click'); }, 150);
+      setTimeout(() => { playBloodSplatter(); if (user === 'player') vibrateGamepad('strong'); }, 250);
+      await wait(effect.followUpDelayMs);
+      updateState(effect.followUpPatch as Partial<CoreState>);
+      setTimeout(() => updateState({ bloodLevel: 0 }), 1500);
     }
-    
-    await wait(waitTime);
+
+    await wait(effect.waitTimeMs);
 
     if (s2.difficulty === 'TUTORIAL') {
       if (user === 'player') {
