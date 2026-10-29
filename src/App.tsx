@@ -12,6 +12,7 @@ import { CustomSelect, SelectOption } from "./components/CustomSelect";
 import { Difficulty, isGrimCondition } from "./types";
 import { Menu, BookOpen, Sparkles } from "lucide-react";
 import { getControllerSettings } from "./controller";
+import { getGamepadType, type GamepadType } from "./controller";
 import { detectGpuHardware, GpuDetectionResult } from "./utils/hardwareDetector";
 import { TutorialOverlay } from "./tutorial/TutorialOverlay";
 
@@ -139,6 +140,7 @@ export default function App() {
     }
   });
   const [inputType, setInputType] = useState<"kbm" | "gamepad">("kbm");
+const [gamepadType, setGamepadType] = useState<GamepadType>("generic");
   const [bloodEffectsEnabled, setBloodEffectsEnabled] = useState(true);
   const [gpuDetection, setGpuDetection] = useState<GpuDetectionResult | null>(null);
   const [showHardwareWarning, setShowHardwareWarning] = useState(false);
@@ -211,12 +213,16 @@ export default function App() {
 
   useEffect(() => {
     import("./controller").then(
-      ({ getControllerSettings, subscribeControllerSettings }) => {
+      ({ getControllerSettings, subscribeControllerSettings, getGamepadType }) => {
         const s = getControllerSettings();
         setInputType(s.inputType || "kbm");
+        setGamepadType(getGamepadType());
+
         setBloodEffectsEnabled(s.bloodEffectsEnabled !== false);
         subscribeControllerSettings((updated) => {
           setInputType(updated.inputType);
+          setGamepadType(getGamepadType());
+
           setBloodEffectsEnabled(updated.bloodEffectsEnabled !== false);
         });
       },
@@ -425,6 +431,7 @@ export default function App() {
         const gamepads = navigator.getGamepads();
         for (const gp of gamepads) {
           if (gp && gp.connected) {
+            setGamepadType(getGamepadType());
             const isAPressed = gp.buttons[0]?.pressed;
             const isStartPressed = gp.buttons[9]?.pressed; // START button OR Option btn
             const isLeftPressed = gp.buttons[14]?.pressed || gp.axes[0] < -0.5;
@@ -626,7 +633,7 @@ export default function App() {
           >
             {inputType === "gamepad" && (
               <span className="gamepad-indicator-btn-a gp-size-large shadow-[0_0_12px_rgba(34,197,94,0.6)]">
-                A
+                {gamepadType === 'playstation' ? '✕' : 'A'}
               </span>
             )}
             {difficulty === "TUTORIAL" ? "START TUTORIAL" : "ENTER THE CHAMBER"}
@@ -769,7 +776,7 @@ export default function App() {
               <div className="absolute top-4 left-1/2 -translate-x-1/2 flex items-center justify-center gap-3.5 text-[10px] uppercase font-mono text-gray-300 frosted-glass-ui px-5 py-2.5 drop-shadow-2xl animate-fade-in shadow-[0_0_30px_rgba(0,0,0,0.8)]">
                 <span className="flex items-center gap-1.5">
                   <span className="gamepad-indicator-btn-b gp-size-medium">
-                    B
+                    {gamepadType === 'playstation' ? '○' : 'B'}
                   </span>{" "}
                   <span className="opacity-80">TOGGLE</span>
                 </span>
@@ -781,7 +788,7 @@ export default function App() {
                 <span className="opacity-20 text-neutral-600">|</span>
                 <span className="flex items-center gap-1.5">
                   <span className="gamepad-indicator-btn-a gp-size-medium">
-                    A
+                    {gamepadType === 'playstation' ? '✕' : 'A'}
                   </span>{" "}
                   <span className="opacity-80">USE/BUY</span>
                 </span>
@@ -1010,7 +1017,7 @@ export default function App() {
               >
                 {inputType === "gamepad" && (
                   <span className="gamepad-indicator-btn-a gp-size-medium shadow-[0_0_8px_rgba(34,197,94,0.5)] mr-1">
-                    A
+                    {gamepadType === 'playstation' ? '✕' : 'A'}
                   </span>
                 )}
                 TRY AGAIN
@@ -1074,7 +1081,7 @@ export default function App() {
                 >
                   {inputType === "gamepad" && (
                     <span className="gamepad-indicator-btn-a gp-size-medium shadow-[0_0_8px_rgba(34,197,94,0.5)] mr-1">
-                      A
+                      {gamepadType === 'playstation' ? '✕' : 'A'}
                     </span>
                   )}
                   ENTER NEXT ROUND

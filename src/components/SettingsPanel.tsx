@@ -4,7 +4,7 @@ import { X, Monitor, Sparkles, Volume2, Gamepad2, Check, Bot, Cpu, Loader2, Chec
 import { CustomSelect, SelectOption } from './CustomSelect';
 import { IndustrialScrollArea } from './IndustrialScrollArea';
 import { getMasterVolume, getAmbientVolume, setMasterVolume, setAmbientVolume, playUIHover, playUIClick, playUISliderTick } from '../audio';
-import { getControllerSettings, setControllerSettings, subscribeControllerSettings, vibrateGamepad, ReflectionQuality, EffectQuality, AiProvider } from '../controller';
+import { getControllerSettings, setControllerSettings, subscribeControllerSettings, vibrateGamepad, ReflectionQuality, EffectQuality, AiProvider, getGamepadType, type GamepadType } from '../controller';
 import { Difficulty } from '../types';
 import { getDifficultyConfig } from '../App';
 import { detectGpuHardware, GpuDetectionResult } from '../utils/hardwareDetector';
@@ -32,6 +32,7 @@ export function SettingsPanel({ difficulty = 'NORMAL', onClose }: SettingsPanelP
   const [masterVol, setMasterVol] = useState(getMasterVolume());
   const [ambientVol, setAmbientVol] = useState(getAmbientVolume());
   const [inputType, setInputType] = useState(settings.inputType);
+const [gamepadType, setGamepadType] = useState<GamepadType>(getGamepadType());
   const [graphicsPreset, setGraphicsPreset] = useState(settings.graphicsPreset);
   
   const [antiAliasing, setAntiAliasing] = useState(settings.antiAliasing);
@@ -132,6 +133,8 @@ export function SettingsPanel({ difficulty = 'NORMAL', onClose }: SettingsPanelP
   useEffect(() => {
     return subscribeControllerSettings(s => {
       setInputType(s.inputType);
+      setGamepadType(getGamepadType());
+
       setGraphicsPreset(s.graphicsPreset);
       setAntiAliasing(s.antiAliasing);
       setPostProcessing(s.postProcessing);
@@ -1219,7 +1222,7 @@ export function SettingsPanel({ difficulty = 'NORMAL', onClose }: SettingsPanelP
             onClick={onClose}
           >
             {inputType === 'gamepad' && (
-              <span className="gamepad-indicator-btn-a gp-size-medium shadow-[0_0_8px_rgba(16,185,129,0.5)]">A</span>
+              <span className="gamepad-indicator-btn-a gp-size-medium shadow-[0_0_8px_rgba(16,185,129,0.5)]">{gamepadType === 'playstation' ? '✕' : 'A'}</span>
             )}
             <span>RETURN TO GAME</span>
           </button>

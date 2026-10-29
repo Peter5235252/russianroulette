@@ -164,6 +164,26 @@ export function updateGamepads() {
   return null;
 }
 
+export type GamepadType = 'playstation' | 'xbox' | 'generic';
+
+export function getGamepadType(): GamepadType {
+  if (typeof navigator === 'undefined' || !navigator.getGamepads) return 'generic';
+  const gamepads = navigator.getGamepads();
+  for (const gp of gamepads) {
+    if (gp && gp.connected) {
+      const id = (gp.id || '').toLowerCase();
+      if (id.includes('playstation') || id.includes('dualshock') || id.includes('dualsense') || id.includes('ps4') || id.includes('ps5') || id.includes('sony') || id.includes('wireless controller')) {
+        return 'playstation';
+      }
+      if (id.includes('xbox') || id.includes('xinput') || id.includes('microsoft')) {
+        return 'xbox';
+      }
+    }
+  }
+  return 'generic';
+}
+
+
 export function vibrateGamepad(
   strength: 'weak' | 'strong' | 'burst' | 'click' | 'jolt' | 'rumble',
   customOptions?: { duration?: number; weak?: number; strong?: number }
