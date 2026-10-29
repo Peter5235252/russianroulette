@@ -7446,6 +7446,7 @@ export function Arena3D({
           height: '100%',
           objectFit: 'cover',
           imageRendering: 'pixelated',
+transform: 'translateZ(0)',
           WebkitFontSmoothing: 'none',
         }}
       />

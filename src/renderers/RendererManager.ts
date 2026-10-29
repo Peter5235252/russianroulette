@@ -66,6 +66,8 @@ export const createWebGPURenderer = async (canvas: HTMLCanvasElement, forceWebGL
 
   const renderer = new WebGPURenderer({
     canvas,
+     alpha: true,
+
     antialias: false,
     powerPreference: 'high-performance',
     forceWebGL: shouldUseWebGL
