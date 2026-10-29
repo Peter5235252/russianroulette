@@ -1030,6 +1030,7 @@ const [gamepadType, setGamepadType] = useState<GamepadType>(getEffectiveGamepadT
                   >
                     {inputType === 'gamepad' ? 'GAMEPAD MODE' : 'KEYBOARD & MOUSE'}
                   </button>
+              { (inputType === 'gamepad' || gamepadConnected) ? (
               <div className="p-4 rounded-none border border-neutral-800 bg-black/40 space-y-3">
                 <div className="flex items-center justify-between">
                   <div>
@@ -1057,6 +1058,13 @@ const [gamepadType, setGamepadType] = useState<GamepadType>(getEffectiveGamepadT
                   </select>
                 </div>
               </div>
+              ) : (
+              <div className="p-4 rounded-none border border-neutral-800 bg-black/40 space-y-3 opacity-50">
+                <span className="font-mono text-xs font-bold uppercase text-neutral-500 tracking-wider block">
+                  Controller Type (select Gamepad input or connect a controller)
+                </span>
+              </div>
+              ) }
 
 
                 </div>
