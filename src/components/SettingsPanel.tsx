@@ -4,7 +4,7 @@ import { X, Monitor, Sparkles, Volume2, Gamepad2, Check, Bot, Cpu, Loader2, Chec
 import { CustomSelect, SelectOption } from './CustomSelect';
 import { IndustrialScrollArea } from './IndustrialScrollArea';
 import { getMasterVolume, getAmbientVolume, setMasterVolume, setAmbientVolume, playUIHover, playUIClick, playUISliderTick } from '../audio';
-import { getControllerSettings, setControllerSettings, subscribeControllerSettings, vibrateGamepad, ReflectionQuality, EffectQuality, AiProvider, getGamepadType, type GamepadType } from '../controller';
+import { getControllerSettings, setControllerSettings, subscribeControllerSettings, vibrateGamepad, ReflectionQuality, EffectQuality, AiProvider, getGamepadType, getEffectiveGamepadType, type GamepadType } from '../controller';
 import { Difficulty } from '../types';
 import { getDifficultyConfig } from '../App';
 import { detectGpuHardware, GpuDetectionResult } from '../utils/hardwareDetector';
@@ -32,7 +32,8 @@ export function SettingsPanel({ difficulty = 'NORMAL', onClose }: SettingsPanelP
   const [masterVol, setMasterVol] = useState(getMasterVolume());
   const [ambientVol, setAmbientVol] = useState(getAmbientVolume());
   const [inputType, setInputType] = useState(settings.inputType);
-const [gamepadType, setGamepadType] = useState<GamepadType>(getGamepadType());
+const [controllerTypeSetting, setControllerTypeSetting] = useState(settings.controllerType || 'auto');
+const [gamepadType, setGamepadType] = useState<GamepadType>(getEffectiveGamepadType());
   const [graphicsPreset, setGraphicsPreset] = useState(settings.graphicsPreset);
   
   const [antiAliasing, setAntiAliasing] = useState(settings.antiAliasing);
@@ -132,8 +133,10 @@ const [gamepadType, setGamepadType] = useState<GamepadType>(getGamepadType());
 
   useEffect(() => {
     return subscribeControllerSettings(s => {
+      setControllerTypeSetting(s.controllerType || 'auto');
+
       setInputType(s.inputType);
-      setGamepadType(getGamepadType());
+      setGamepadType(getEffectiveGamepadType());
 
       setGraphicsPreset(s.graphicsPreset);
       setAntiAliasing(s.antiAliasing);
@@ -1027,6 +1030,35 @@ const [gamepadType, setGamepadType] = useState<GamepadType>(getGamepadType());
                   >
                     {inputType === 'gamepad' ? 'GAMEPAD MODE' : 'KEYBOARD & MOUSE'}
                   </button>
+              <div className="p-4 rounded-none border border-neutral-800 bg-black/40 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <span className="font-mono text-xs font-bold uppercase text-white tracking-wider block">
+                      Controller Type
+                    </span>
+                    <span className="text-[11px] text-neutral-400 font-mono">
+                      Override button prompts (Auto detects connected controller)
+                    </span>
+                  </div>
+                  <select
+                    value={controllerTypeSetting}
+                    onChange={(e) => {
+                      const val = e.target.value as 'auto' | 'playstation' | 'xbox' | 'nintendo';
+                      setControllerTypeSetting(val);
+                      handleCustomSetting({ controllerType: val });
+                      setGamepadType(getEffectiveGamepadType());
+                    }}
+                    className="min-h-[44px] px-3 py-2 border font-mono text-xs font-bold rounded-none bg-neutral-900 border-neutral-700 text-neutral-200 cursor-pointer"
+                  >
+                    <option value="auto">AUTO DETECT</option>
+                    <option value="playstation">PLAYSTATION</option>
+                    <option value="xbox">XBOX</option>
+                    <option value="nintendo">NINTENDO</option>
+                  </select>
+                </div>
+              </div>
+
+
                 </div>
               </div>
 
@@ -1222,7 +1254,7 @@ const [gamepadType, setGamepadType] = useState<GamepadType>(getGamepadType());
             onClick={onClose}
           >
             {inputType === 'gamepad' && (
-              <span className="gamepad-indicator-btn-a gp-size-medium shadow-[0_0_8px_rgba(16,185,129,0.5)]">{gamepadType === 'playstation' ? '✕' : 'A'}</span>
+              <span className="gamepad-indicator-btn-a gp-size-medium shadow-[0_0_8px_rgba(16,185,129,0.5)]">{gamepadType === 'playstation' ? '✕' : gamepadType === 'nintendo' ? 'B' : 'A'}</span>
             )}
             <span>RETURN TO GAME</span>
           </button>

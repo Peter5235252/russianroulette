@@ -38,6 +38,8 @@ export interface ControllerSettings {
   useWebGPU: boolean;
   webglForcedByUser?: boolean;
   showKeyboardHud?: boolean;
+  controllerType?: 'auto' | 'playstation' | 'xbox' | 'nintendo';
+
   aiProvider: AiProvider;
   aiApiKey: string;
   aiCustomModel: string;
@@ -79,6 +81,8 @@ const defaultSettings: ControllerSettings = {
   useWebGPU: true,
   webglForcedByUser: false,
   showKeyboardHud: true,
+  controllerType: 'auto',
+
   aiProvider: 'gemini',
   aiApiKey: '',
   aiCustomModel: '',
@@ -164,7 +168,7 @@ export function updateGamepads() {
   return null;
 }
 
-export type GamepadType = 'playstation' | 'xbox' | 'generic';
+export type GamepadType = 'playstation' | 'xbox' | 'nintendo' | 'generic';
 
 export function getGamepadType(): GamepadType {
   if (typeof navigator === 'undefined' || !navigator.getGamepads) return 'generic';
@@ -181,6 +185,15 @@ export function getGamepadType(): GamepadType {
     }
   }
   return 'generic';
+}
+
+
+export function getEffectiveGamepadType(): GamepadType {
+  const t = (currentSettings.controllerType || 'auto') as string;
+  if (t === 'playstation') return 'playstation';
+  if (t === 'xbox') return 'xbox';
+  if (t === 'nintendo') return 'nintendo';
+  return getGamepadType();
 }
 
 

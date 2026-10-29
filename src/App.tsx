@@ -12,7 +12,7 @@ import { CustomSelect, SelectOption } from "./components/CustomSelect";
 import { Difficulty, isGrimCondition } from "./types";
 import { Menu, BookOpen, Sparkles } from "lucide-react";
 import { getControllerSettings } from "./controller";
-import { getGamepadType, type GamepadType } from "./controller";
+import { getGamepadType, getEffectiveGamepadType, type GamepadType } from "./controller";
 import { detectGpuHardware, GpuDetectionResult } from "./utils/hardwareDetector";
 import { TutorialOverlay } from "./tutorial/TutorialOverlay";
 
@@ -213,15 +213,15 @@ const [gamepadType, setGamepadType] = useState<GamepadType>("generic");
 
   useEffect(() => {
     import("./controller").then(
-      ({ getControllerSettings, subscribeControllerSettings, getGamepadType }) => {
+      ({ getControllerSettings, subscribeControllerSettings, getGamepadType, getEffectiveGamepadType }) => {
         const s = getControllerSettings();
         setInputType(s.inputType || "kbm");
-        setGamepadType(getGamepadType());
+        setGamepadType(getEffectiveGamepadType());
 
         setBloodEffectsEnabled(s.bloodEffectsEnabled !== false);
         subscribeControllerSettings((updated) => {
           setInputType(updated.inputType);
-          setGamepadType(getGamepadType());
+          setGamepadType(getEffectiveGamepadType());
 
           setBloodEffectsEnabled(updated.bloodEffectsEnabled !== false);
         });
@@ -431,7 +431,7 @@ const [gamepadType, setGamepadType] = useState<GamepadType>("generic");
         const gamepads = navigator.getGamepads();
         for (const gp of gamepads) {
           if (gp && gp.connected) {
-            setGamepadType(getGamepadType());
+            setGamepadType(getEffectiveGamepadType());
             const isAPressed = gp.buttons[0]?.pressed;
             const isStartPressed = gp.buttons[9]?.pressed; // START button OR Option btn
             const isLeftPressed = gp.buttons[14]?.pressed || gp.axes[0] < -0.5;
@@ -633,7 +633,7 @@ const [gamepadType, setGamepadType] = useState<GamepadType>("generic");
           >
             {inputType === "gamepad" && (
               <span className="gamepad-indicator-btn-a gp-size-large shadow-[0_0_12px_rgba(34,197,94,0.6)]">
-                {gamepadType === 'playstation' ? '✕' : 'A'}
+                {gamepadType === 'playstation' ? '✕' : gamepadType === 'nintendo' ? 'B' : 'A'}
               </span>
             )}
             {difficulty === "TUTORIAL" ? "START TUTORIAL" : "ENTER THE CHAMBER"}
@@ -776,7 +776,7 @@ const [gamepadType, setGamepadType] = useState<GamepadType>("generic");
               <div className="absolute top-4 left-1/2 -translate-x-1/2 flex items-center justify-center gap-3.5 text-[10px] uppercase font-mono text-gray-300 frosted-glass-ui px-5 py-2.5 drop-shadow-2xl animate-fade-in shadow-[0_0_30px_rgba(0,0,0,0.8)]">
                 <span className="flex items-center gap-1.5">
                   <span className="gamepad-indicator-btn-b gp-size-medium">
-                    {gamepadType === 'playstation' ? '○' : 'B'}
+                    {gamepadType === 'playstation' ? '○' : gamepadType === 'nintendo' ? 'A' : 'B'}
                   </span>{" "}
                   <span className="opacity-80">TOGGLE</span>
                 </span>
@@ -788,7 +788,7 @@ const [gamepadType, setGamepadType] = useState<GamepadType>("generic");
                 <span className="opacity-20 text-neutral-600">|</span>
                 <span className="flex items-center gap-1.5">
                   <span className="gamepad-indicator-btn-a gp-size-medium">
-                    {gamepadType === 'playstation' ? '✕' : 'A'}
+                    {gamepadType === 'playstation' ? '✕' : gamepadType === 'nintendo' ? 'B' : 'A'}
                   </span>{" "}
                   <span className="opacity-80">USE/BUY</span>
                 </span>
@@ -1017,7 +1017,7 @@ const [gamepadType, setGamepadType] = useState<GamepadType>("generic");
               >
                 {inputType === "gamepad" && (
                   <span className="gamepad-indicator-btn-a gp-size-medium shadow-[0_0_8px_rgba(34,197,94,0.5)] mr-1">
-                    {gamepadType === 'playstation' ? '✕' : 'A'}
+                    {gamepadType === 'playstation' ? '✕' : gamepadType === 'nintendo' ? 'B' : 'A'}
                   </span>
                 )}
                 TRY AGAIN
@@ -1081,7 +1081,7 @@ const [gamepadType, setGamepadType] = useState<GamepadType>("generic");
                 >
                   {inputType === "gamepad" && (
                     <span className="gamepad-indicator-btn-a gp-size-medium shadow-[0_0_8px_rgba(34,197,94,0.5)] mr-1">
-                      {gamepadType === 'playstation' ? '✕' : 'A'}
+                      {gamepadType === 'playstation' ? '✕' : gamepadType === 'nintendo' ? 'B' : 'A'}
                     </span>
                   )}
                   ENTER NEXT ROUND
