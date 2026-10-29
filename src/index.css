@@ -217,6 +217,33 @@ body {
   filter: brightness(0.85);
 }
 
+.gamepad-indicator-btn-blue {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  font-family: var(--font-sans), system-ui, sans-serif;
+  font-weight: 800;
+  color: #ffffff;
+  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 40%, #1d4ed8 100%);
+  border: 1px solid #1e40af;
+  border-bottom: 2px solid #1e3a8a;
+  box-shadow: 0 1.5px 3px rgba(0, 0, 0, 0.4), inset 0 1px 1px rgba(255, 255, 255, 0.45);
+  text-shadow: 0 -1px 0 rgba(0, 0, 0, 0.35);
+  transition: transform 0.08s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.08s cubic-bezier(0.4, 0, 0.2, 1), filter 0.08s ease;
+  user-select: none;
+  width: 14px;
+  height: 14px;
+  font-size: 8px;
+  line-height: 1;
+}
+.gamepad-indicator-btn-blue:active {
+  transform: scale(0.92) translateY(1.5px);
+  box-shadow: 0 0.5px 1px rgba(0, 0, 0, 0.4), inset 0 0.5px 0.5px rgba(255, 255, 255, 0.2);
+  filter: brightness(0.85);
+}
+
+
 .gamepad-indicator-btn-y {
   display: inline-flex;
   align-items: center;

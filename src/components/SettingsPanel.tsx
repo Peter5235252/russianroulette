@@ -1262,7 +1262,7 @@ const [gamepadType, setGamepadType] = useState<GamepadType>(getEffectiveGamepadT
             onClick={onClose}
           >
             {inputType === 'gamepad' && (
-              <span className="gamepad-indicator-btn-a gp-size-medium shadow-[0_0_8px_rgba(16,185,129,0.5)]">{gamepadType === 'playstation' ? '✕' : gamepadType === 'nintendo' ? 'B' : 'A'}</span>
+              <span className={`${gamepadType === 'playstation' || gamepadType === 'nintendo' ? 'gamepad-indicator-btn-blue' : 'gamepad-indicator-btn-a'} gp-size-medium shadow-[0_0_8px_rgba(16,185,129,0.5)]`}>{gamepadType === 'playstation' ? '✕' : gamepadType === 'nintendo' ? 'B' : 'A'}</span>
             )}
             <span>RETURN TO GAME</span>
           </button>

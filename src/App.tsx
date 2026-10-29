@@ -632,7 +632,7 @@ const [gamepadType, setGamepadType] = useState<GamepadType>("generic");
             className="btn-rusty px-12 py-4 text-xl font-bold tracking-[0.3em] flex items-center justify-center gap-4 cursor-pointer"
           >
             {inputType === "gamepad" && (
-              <span className="gamepad-indicator-btn-a gp-size-large shadow-[0_0_12px_rgba(34,197,94,0.6)]">
+              <span className={`${gamepadType === 'playstation' || gamepadType === 'nintendo' ? 'gamepad-indicator-btn-blue' : 'gamepad-indicator-btn-a'} gp-size-large shadow-[0_0_12px_rgba(34,197,94,0.6)]`}>
                 {gamepadType === 'playstation' ? '✕' : gamepadType === 'nintendo' ? 'B' : 'A'}
               </span>
             )}
@@ -787,7 +787,7 @@ const [gamepadType, setGamepadType] = useState<GamepadType>("generic");
                 </span>
                 <span className="opacity-20 text-neutral-600">|</span>
                 <span className="flex items-center gap-1.5">
-                  <span className="gamepad-indicator-btn-a gp-size-medium">
+                  <span className={`${gamepadType === 'playstation' || gamepadType === 'nintendo' ? 'gamepad-indicator-btn-blue' : 'gamepad-indicator-btn-a'} gp-size-medium`}>
                     {gamepadType === 'playstation' ? '✕' : gamepadType === 'nintendo' ? 'B' : 'A'}
                   </span>{" "}
                   <span className="opacity-80">USE/BUY</span>
@@ -1016,7 +1016,7 @@ const [gamepadType, setGamepadType] = useState<GamepadType>("generic");
                 className="btn-rusty px-10 py-4 bg-gradient-to-r from-red-950/40 to-black border-2 border-red-700/60 hover:border-red-500 rounded text-red-500 hover:text-red-400 font-mono text-xl tracking-widest uppercase shadow-[0_0_25px_rgba(153,27,27,0.3)] hover:shadow-[0_0_40px_rgba(153,27,27,0.6)] transition-all cursor-pointer animate-pulse flex items-center justify-center gap-3"
               >
                 {inputType === "gamepad" && (
-                  <span className="gamepad-indicator-btn-a gp-size-medium shadow-[0_0_8px_rgba(34,197,94,0.5)] mr-1">
+                  <span className={`${gamepadType === 'playstation' || gamepadType === 'nintendo' ? 'gamepad-indicator-btn-blue' : 'gamepad-indicator-btn-a'} gp-size-medium shadow-[0_0_8px_rgba(34,197,94,0.5)] mr-1`}>
                     {gamepadType === 'playstation' ? '✕' : gamepadType === 'nintendo' ? 'B' : 'A'}
                   </span>
                 )}
@@ -1080,7 +1080,7 @@ const [gamepadType, setGamepadType] = useState<GamepadType>("generic");
                   className="btn-rusty px-10 py-4 bg-gradient-to-r from-red-900 to-red-800 border-2 border-red-500 rounded text-red-100 font-mono text-xl tracking-widest uppercase shadow-[0_0_20px_rgba(220,38,38,0.5)] hover:shadow-[0_0_40px_rgba(220,38,38,0.8)] transition-all flex items-center justify-center gap-3"
                 >
                   {inputType === "gamepad" && (
-                    <span className="gamepad-indicator-btn-a gp-size-medium shadow-[0_0_8px_rgba(34,197,94,0.5)] mr-1">
+                    <span className={`${gamepadType === 'playstation' || gamepadType === 'nintendo' ? 'gamepad-indicator-btn-blue' : 'gamepad-indicator-btn-a'} gp-size-medium shadow-[0_0_8px_rgba(34,197,94,0.5)] mr-1`}>
                       {gamepadType === 'playstation' ? '✕' : gamepadType === 'nintendo' ? 'B' : 'A'}
                     </span>
                   )}
