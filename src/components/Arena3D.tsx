@@ -35,7 +35,7 @@ import {
 } from '../audio';
 import { getControllerSettings, subscribeControllerSettings } from '../controller';
 import { createWebGPURenderer, isWebGPUSupported } from '../renderers/RendererManager';
-import { updateGamepads, vibrateGamepad } from '../controller';
+import { updateGamepads, vibrateGamepad, getEffectiveGamepadType } from '../controller';
 import { AlertCircle, Terminal, Cpu, RefreshCw, ShieldCheck } from 'lucide-react';
 
 interface Arena3DProps {
@@ -6683,7 +6683,10 @@ export function Arena3D({
           
           let stylizedDesc = activeTargetDesc;
           if (stylizedDesc.includes('[A]')) {
-             stylizedDesc = stylizedDesc.replace(/\[A\]/g, '<span class="gamepad-indicator-btn-a align-middle mx-0.5 shadow-[0_0_4px_rgba(16,185,129,0.3)]">A</span>');
+              const gpType = getEffectiveGamepadType();
+              const cls = (gpType === 'playstation' || gpType === 'nintendo') ? 'gamepad-indicator-btn-blue' : 'gamepad-indicator-btn-a';
+              const lbl = gpType === 'playstation' ? '✕' : gpType === 'nintendo' ? 'B' : 'A';
+              stylizedDesc = stylizedDesc.replace(/\\[A\\]/g, `<span class="${cls} align-middle mx-0.5 shadow-[0_0_4px_rgba(16,185,129,0.3)]">${lbl}</span>`);
           }
           if (stylizedDesc.includes('[LT]')) {
              stylizedDesc = stylizedDesc.replace(/\[LT\]/g, '<span class="gamepad-indicator-cap align-middle mx-0.5">LT</span>');
